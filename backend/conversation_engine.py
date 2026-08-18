@@ -5,12 +5,12 @@ from validation.ai_output_rules import validate_turn_result, STATE_MODULES
 
 logger = logging.getLogger("leadpilot.engine")
 
-MAX_MESSAGES = 30  # message cap, per blueprint Section 10 guardrails — enforced in Day 5.
-# Raised from 15: the additional_notes state (added in tonight's tone pass) brought the
-# funnel to 7 non-terminal states, needing 14 messages minimum even in a perfectly efficient
-# conversation with zero redundant turns — 15 was already too tight before accounting for
-# natural back-and-forth. Real cost per extra exchange is trivial (a few paisa), so bias
-# toward completing naturally over cutting a nearly-finished conversation off.
+MAX_MESSAGES = 50  # message cap, per blueprint Section 10 guardrails — enforced in Day 5.
+# Raised 15 -> 30 -> 50 across tonight's live testing: the additional_notes state added a
+# 7th non-terminal step, and real conversations run longer than the theoretical minimum once
+# clarification questions (e.g. contact detail confirmation) are added in. Real cost per
+# extra exchange is trivial (a few paisa), so bias toward completing naturally over cutting
+# a nearly-finished conversation off.
 
 
 def build_prompt(state_name: str, collected_fields: dict, history: list[str], user_text: str) -> tuple[str, str]:
