@@ -193,14 +193,7 @@ def _handle_message(msg: dict):
 
         if just_qualified:
             result = score_lead(updated_fields)
-            db.add(
-                Qualification(
-                    conversation_id=conversation_id,
-                    score=result["score"],
-                    breakdown=result["breakdown"],
-                    qualified=result["qualified"],
-                )
-            )
+            _upsert_qualification(db, conversation_id, result)
             logger.info(
                 "Conversation %s reached qualification_decision: score=%s qualified=%s",
                 conversation_id, result["score"], result["qualified"],
@@ -239,6 +232,26 @@ def _handle_message(msg: dict):
     log_transition(lead_id, current_state, new_state, gemini_ms, send_outcome)
 
 
+def _upsert_qualification(db, conversation_id: int, result: dict):
+    """conversation_id is unique on qualifications — a conversation reaching qualification
+    twice (e.g. re-triggered by a message-cap forced handoff after already qualifying, or a
+    replayed/retried message) must update the existing row, not insert a duplicate and crash."""
+    existing = db.query(Qualification).filter_by(conversation_id=conversation_id).first()
+    if existing:
+        existing.score = result["score"]
+        existing.breakdown = result["breakdown"]
+        existing.qualified = result["qualified"]
+    else:
+        db.add(
+            Qualification(
+                conversation_id=conversation_id,
+                score=result["score"],
+                breakdown=result["breakdown"],
+                qualified=result["qualified"],
+            )
+        )
+
+
 def _force_handoff(wa_number: str, conversation_id: int, current_state: str, collected_fields: dict, last_inbound_at):
     """Message cap hit — no more Gemini calls for this conversation. Deterministic reply,
     force to qualification_decision with an 'incomplete' flag, hand off to Hoshang directly.
@@ -265,14 +278,7 @@ def _force_handoff(wa_number: str, conversation_id: int, current_state: str, col
                 text=reply_text,
             )
         )
-        db.add(
-            Qualification(
-                conversation_id=conversation_id,
-                score=result["score"],
-                breakdown=result["breakdown"],
-                qualified=result["qualified"],
-            )
-        )
+        _upsert_qualification(db, conversation_id, result)
         db.commit()
         logger.warning(
             "Conversation %s hit message cap (%d), forced handoff — score=%s (incomplete)",
