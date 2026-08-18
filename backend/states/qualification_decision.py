@@ -11,7 +11,7 @@ they'd like. Do not extract new fields here."""
 
 FEW_SHOT = """
 Input: "(final message already handled by prior state)"
-Output: {"reply_text": "Thanks so much — this sounds like exactly the kind of thing Hoshang builds. I've passed everything along to him, he'll follow up directly.", "extracted_fields": {}, "next_state": "qualification_decision", "confidence_flag": "high"}
+Output: {"reply_text": "Thanks so much, this sounds like exactly the kind of thing Hoshang builds. I've passed everything along to him, and he'll follow up with you directly.", "extracted_fields": {}, "next_state": "qualification_decision", "confidence_flag": "high"}
 """
 
 REQUIRED_FIELDS: list[str] = []

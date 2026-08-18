@@ -15,6 +15,7 @@ def send_qualified_lead_email(wa_number: str, collected_fields: dict, score_resu
     budget = collected_fields.get("budget_range", "not disclosed")
     timeline = collected_fields.get("timeline_expectation", "-")
     preference = collected_fields.get("contact_preference", "-")
+    notes = collected_fields.get("additional_notes", "-")
 
     subject = f"New Qualified Lead: {name} — {service_type}"
     html = f"""
@@ -28,6 +29,7 @@ def send_qualified_lead_email(wa_number: str, collected_fields: dict, score_resu
         <li><strong>Budget:</strong> {budget}</li>
         <li><strong>Timeline:</strong> {timeline}</li>
         <li><strong>Contact preference:</strong> {preference}</li>
+        <li><strong>Additional notes:</strong> {notes}</li>
     </ul>
     <p><strong>Score breakdown:</strong> {score_result['breakdown']}</p>
     """

@@ -49,8 +49,9 @@ async def call_gemini(prompt: str, system_instruction: str) -> ConversationTurnR
                     # Gemini's Developer API rejects — Enterprise-only. Reverted.)
                     automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
                     # gemini-3.6-flash uses thinking_level (string enum), not the older numeric
-                    # thinking_budget — that rejected with 400 INVALID_ARGUMENT. Defaults to
-                    # "medium"; this task (short extraction + reply) doesn't need deep reasoning.
+                    # thinking_budget. Restored after testing showed the earlier state-tracking
+                    # regression was caused by verbose style instructions diluting focus, not
+                    # this setting — see the tightened system_instruction in conversation_engine.py.
                     thinking_config=types.ThinkingConfig(thinking_level="minimal"),
                 ),
             )

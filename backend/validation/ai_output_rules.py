@@ -10,6 +10,7 @@ from states import (
     budget,
     timeline,
     contact_verification,
+    additional_notes,
     qualification_decision,
 )
 
@@ -20,6 +21,7 @@ STATE_MODULES = {
     "budget": budget,
     "timeline": timeline,
     "contact_verification": contact_verification,
+    "additional_notes": additional_notes,
     "qualification_decision": qualification_decision,
 }
 

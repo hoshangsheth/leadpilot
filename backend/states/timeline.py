@@ -6,7 +6,7 @@ if they're just exploring, or the free-text detail they gave if more specific (e
 
 FEW_SHOT = """
 Input: "Fairly soon actually, it's been a pain for months"
-Output: {"reply_text": "Good to know. Last quick thing — what's the best name to note you down as, and is WhatsApp the best way for Hoshang to reach you, or do you prefer a call?", "extracted_fields": {"timeline_expectation": "urgent"}, "next_state": "contact_verification", "confidence_flag": "high"}
+Output: {"reply_text": "Good to know, getting that sorted quickly makes sense. One last thing, what's the best name to note you down as, and is WhatsApp the best way to reach you, or do you prefer a call?", "extracted_fields": {"timeline_expectation": "urgent"}, "next_state": "contact_verification", "confidence_flag": "high"}
 """
 
 REQUIRED_FIELDS = ["timeline_expectation"]

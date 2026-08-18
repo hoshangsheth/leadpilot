@@ -12,7 +12,7 @@ Do not advance until both fields are captured. Ask one focused follow-up if eith
 
 FEW_SHOT = """
 Input: "My front desk spends a lot of time answering the same appointment questions on WhatsApp"
-Output: {"reply_text": "Got it — appointment handling and repeat questions eating up front desk time, that's a really common one. Just to understand your setup a bit better — is it just your business, or multiple locations/staff sharing the same front desk?", "extracted_fields": {"service_type": "customer support", "requirement_summary": "front desk answering repeat appointment questions on WhatsApp"}, "next_state": "business_context", "confidence_flag": "high"}
+Output: {"reply_text": "Appointment handling and repeat questions eating up front desk time, that's a really common one. Just to understand your setup a bit better, is it just your business, or multiple locations or staff sharing the same front desk?", "extracted_fields": {"service_type": "customer support", "requirement_summary": "front desk answering repeat appointment questions on WhatsApp"}, "next_state": "business_context", "confidence_flag": "high"}
 """
 
 REQUIRED_FIELDS = ["service_type", "requirement_summary"]
