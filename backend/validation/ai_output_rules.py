@@ -47,5 +47,11 @@ def validate_turn_result(
         if missing:
             result.next_state = current_state
             result.confidence_flag = "low"
+        elif hasattr(module, "extra_check") and not module.extra_check(merged):
+            # Required fields are all present but content-quality checks failed — e.g.
+            # contact_preference says "email" with no actual email address attached.
+            # Presence isn't the same as usable.
+            result.next_state = current_state
+            result.confidence_flag = "low"
 
     return result
