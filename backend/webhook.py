@@ -255,13 +255,21 @@ def _upsert_qualification(db, conversation_id: int, result: dict):
 def _force_handoff(wa_number: str, conversation_id: int, current_state: str, collected_fields: dict, last_inbound_at):
     """Message cap hit — no more Gemini calls for this conversation. Deterministic reply,
     force to qualification_decision with an 'incomplete' flag, hand off to Hoshang directly.
-    See full blueprint Section 10/11 — forced handoff with partial data flagged incomplete."""
+    See full blueprint Section 10/11 — forced handoff with partial data flagged incomplete.
+
+    Still sends the qualified-lead email + Calendly link if the fields actually collected
+    genuinely score as qualified — "incomplete" only means additional_notes wasn't reached,
+    it doesn't mean the real scoring fields are missing. A lead who answered everything real
+    and just got cut off one exchange short still deserves the notification and the link."""
     reply_text = (
-        "Thanks so much for the detail so far — I want to make sure Hoshang picks this up "
+        "Thanks so much for the detail so far. I want to make sure Hoshang picks this up "
         "directly rather than keep you going back and forth here. He'll follow up with you shortly."
     )
     collected_fields = {**collected_fields, "incomplete": "true"}
     result = score_lead(collected_fields)
+
+    if result["qualified"]:
+        reply_text = f"{reply_text}\n\nFeel free to grab a slot directly: {config.CALENDLY_LINK}"
 
     db = SessionLocal()
     try:
@@ -281,11 +289,14 @@ def _force_handoff(wa_number: str, conversation_id: int, current_state: str, col
         _upsert_qualification(db, conversation_id, result)
         db.commit()
         logger.warning(
-            "Conversation %s hit message cap (%d), forced handoff — score=%s (incomplete)",
-            conversation_id, MAX_MESSAGES, result["score"],
+            "Conversation %s hit message cap (%d), forced handoff — score=%s qualified=%s",
+            conversation_id, MAX_MESSAGES, result["score"], result["qualified"],
         )
     finally:
         db.close()
+
+    if result["qualified"]:
+        send_qualified_lead_email(wa_number, collected_fields, result)
 
     try:
         asyncio.run(send_message(to=wa_number, text=reply_text, last_inbound_at=last_inbound_at))
