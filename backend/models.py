@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import String, DateTime, ForeignKey, Text, Boolean
+from sqlalchemy import String, DateTime, ForeignKey, Text, Boolean, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from db import Base
 
@@ -26,6 +26,7 @@ class Conversation(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id"), index=True)
     state: Mapped[str] = mapped_column(String(64), default="greeting")
+    collected_fields: Mapped[dict] = mapped_column(JSON, default=dict)
     last_inbound_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 

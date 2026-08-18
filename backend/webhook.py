@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import hmac
 import logging
@@ -9,6 +10,7 @@ import config
 from db import SessionLocal
 from models import Lead, Conversation, Message
 from whatsapp_client import send_message
+from conversation_engine import process_message
 
 router = APIRouter()
 logger = logging.getLogger("leadpilot.webhook")
@@ -68,7 +70,11 @@ def _handle_message(msg: dict):
 
     if msg_type != "text":
         logger.info("Ignoring unsupported message type=%s from=%s", msg_type, wa_number)
-        # Stage 2+ will send the "text only for now" redirect reply; stub reply covers this in Stage 1.
+        # Real "text only for now" redirect reply is a Stage 5 hardening item.
+        return
+
+    if not text.strip():
+        logger.info("Ignoring empty message body from=%s", wa_number)
         return
 
     db = SessionLocal()
@@ -90,6 +96,15 @@ def _handle_message(msg: dict):
             db.add(conversation)
             db.flush()
 
+        if lead.human_takeover:
+            logger.info("Lead %s has human_takeover set — bot stays silent", lead.id)
+            message = Message(
+                conversation_id=conversation.id, wa_message_id=wa_message_id, direction="in", text=text
+            )
+            db.add(message)
+            db.commit()
+            return
+
         message = Message(
             conversation_id=conversation.id,
             wa_message_id=wa_message_id,
@@ -98,7 +113,21 @@ def _handle_message(msg: dict):
         )
         db.add(message)
         db.commit()
-        last_inbound_at = conversation.last_inbound_at  # read while session is still open
+
+        # Read everything needed while the session is still open — avoids the detached-instance
+        # bug hit in Stage 1 (accessing ORM attributes after db.close()).
+        last_inbound_at = conversation.last_inbound_at
+        current_state = conversation.state
+        collected_fields = dict(conversation.collected_fields or {})
+        history = [
+            m.text
+            for m in db.query(Message)
+            .filter_by(conversation_id=conversation.id)
+            .order_by(Message.id.desc())
+            .limit(6)
+            .all()
+        ][::-1]
+        conversation_id = conversation.id
     except IntegrityError:
         # Duplicate wa_message_id — Meta retried delivery. Already processed, safe to skip.
         db.rollback()
@@ -107,19 +136,34 @@ def _handle_message(msg: dict):
     finally:
         db.close()
 
-    _send_stub_reply(wa_number, last_inbound_at)
+    outcome = asyncio.run(process_message(current_state, collected_fields, history, text))
 
+    if outcome is None:
+        # Dependency failure (Section 9a) — Gemini unreachable/malformed after retry.
+        # Day 5 hardening adds a proper filler-message + retry-queue; log for now.
+        logger.error("Gemini call failed for conversation_id=%s, no reply sent", conversation_id)
+        return
 
-def _send_stub_reply(wa_number: str, last_inbound_at):
-    import asyncio
+    reply_text, new_state, updated_fields = outcome
 
+    db = SessionLocal()
     try:
-        asyncio.run(
-            send_message(
-                to=wa_number,
-                text="Thanks for your message — LeadPilot is still being built, real replies coming soon.",
-                last_inbound_at=last_inbound_at,
+        conversation = db.get(Conversation, conversation_id)
+        conversation.state = new_state
+        conversation.collected_fields = updated_fields
+        db.add(
+            Message(
+                conversation_id=conversation_id,
+                wa_message_id=f"{wa_message_id}-reply",
+                direction="out",
+                text=reply_text,
             )
         )
+        db.commit()
+    finally:
+        db.close()
+
+    try:
+        asyncio.run(send_message(to=wa_number, text=reply_text, last_inbound_at=last_inbound_at))
     except Exception:
-        logger.exception("Failed to send stub reply to %s", wa_number)
+        logger.exception("Failed to send reply to %s", wa_number)
