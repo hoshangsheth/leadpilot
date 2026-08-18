@@ -21,6 +21,8 @@ router = APIRouter()
 logger = logging.getLogger("leadpilot.webhook")
 
 WELCOME_BACK_GAP_HOURS = 6
+MAX_TEXT_LENGTH = 2000  # a legitimate WhatsApp reply is nowhere near this; bounds worst-case
+# Gemini token cost per message and blocks unbounded text as a cheap abuse/DoS-via-cost vector.
 
 
 @router.get("/webhook/whatsapp")
@@ -83,6 +85,10 @@ def _handle_message(msg: dict):
     if not text.strip():
         logger.info("Ignoring empty message body from=%s", wa_number)
         return
+
+    if len(text) > MAX_TEXT_LENGTH:
+        logger.warning("Truncating oversized message (%d chars) from=%s", len(text), wa_number)
+        text = text[:MAX_TEXT_LENGTH]
 
     db = SessionLocal()
     try:
