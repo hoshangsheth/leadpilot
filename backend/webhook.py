@@ -10,7 +10,7 @@ import config
 from db import SessionLocal
 from models import Lead, Conversation, Message, Qualification
 from whatsapp_client import send_message
-from conversation_engine import process_message
+from conversation_engine import process_message, MAX_MESSAGES
 from scoring import score_lead
 
 router = APIRouter()
@@ -129,6 +129,7 @@ def _handle_message(msg: dict):
             .all()
         ][::-1]
         conversation_id = conversation.id
+        message_count = db.query(Message).filter_by(conversation_id=conversation.id).count()
     except IntegrityError:
         # Duplicate wa_message_id — Meta retried delivery. Already processed, safe to skip.
         db.rollback()
@@ -136,6 +137,12 @@ def _handle_message(msg: dict):
         return
     finally:
         db.close()
+
+    # Message cap — bounds worst-case Gemini spend per lead and forces a clean handoff
+    # instead of an endless (and costly) back-and-forth. See blueprint Section 10 guardrails.
+    if message_count >= MAX_MESSAGES and current_state != "qualification_decision":
+        _force_handoff(wa_number, conversation_id, current_state, collected_fields, last_inbound_at)
+        return
 
     outcome = asyncio.run(process_message(current_state, collected_fields, history, text))
 
@@ -183,3 +190,51 @@ def _handle_message(msg: dict):
         asyncio.run(send_message(to=wa_number, text=reply_text, last_inbound_at=last_inbound_at))
     except Exception:
         logger.exception("Failed to send reply to %s", wa_number)
+
+
+def _force_handoff(wa_number: str, conversation_id: int, current_state: str, collected_fields: dict, last_inbound_at):
+    """Message cap hit — no more Gemini calls for this conversation. Deterministic reply,
+    force to qualification_decision with an 'incomplete' flag, hand off to Hoshang directly.
+    See full blueprint Section 10/11 — forced handoff with partial data flagged incomplete."""
+    reply_text = (
+        "Thanks so much for the detail so far — I want to make sure Hoshang picks this up "
+        "directly rather than keep you going back and forth here. He'll follow up with you shortly."
+    )
+    collected_fields = {**collected_fields, "incomplete": "true"}
+    result = score_lead(collected_fields)
+
+    db = SessionLocal()
+    try:
+        conversation = db.get(Conversation, conversation_id)
+        conversation.state = "qualification_decision"
+        conversation.collected_fields = collected_fields
+        conversation.lead.human_takeover = True
+
+        db.add(
+            Message(
+                conversation_id=conversation_id,
+                wa_message_id=f"forced-handoff-{conversation_id}-{int(last_inbound_at.timestamp())}",
+                direction="out",
+                text=reply_text,
+            )
+        )
+        db.add(
+            Qualification(
+                conversation_id=conversation_id,
+                score=result["score"],
+                breakdown=result["breakdown"],
+                qualified=result["qualified"],
+            )
+        )
+        db.commit()
+        logger.warning(
+            "Conversation %s hit message cap (%d), forced handoff — score=%s (incomplete)",
+            conversation_id, MAX_MESSAGES, result["score"],
+        )
+    finally:
+        db.close()
+
+    try:
+        asyncio.run(send_message(to=wa_number, text=reply_text, last_inbound_at=last_inbound_at))
+    except Exception:
+        logger.exception("Failed to send forced-handoff message to %s", wa_number)
