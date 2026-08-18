@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import logging
 import time
+from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, Request, Response, BackgroundTasks
 from sqlalchemy.exc import IntegrityError
@@ -18,6 +19,8 @@ from observability.logger import log_transition
 
 router = APIRouter()
 logger = logging.getLogger("leadpilot.webhook")
+
+WELCOME_BACK_GAP_HOURS = 6
 
 
 @router.get("/webhook/whatsapp")
@@ -109,6 +112,17 @@ def _handle_message(msg: dict):
             db.commit()
             return
 
+        # Capture the PREVIOUS inbound time before overwriting — used for both the welcome-back
+        # gap check and (previously, silently broken) the 24h-window check. last_inbound_at was
+        # never actually being refreshed after conversation creation until this fix.
+        previous_inbound_at = conversation.last_inbound_at
+        now = datetime.now(timezone.utc)
+        if previous_inbound_at.tzinfo is None:
+            previous_inbound_at = previous_inbound_at.replace(tzinfo=timezone.utc)
+        is_returning_after_gap = (
+            message_count_before_this := db.query(Message).filter_by(conversation_id=conversation.id).count()
+        ) > 0 and (now - previous_inbound_at) > timedelta(hours=WELCOME_BACK_GAP_HOURS)
+
         message = Message(
             conversation_id=conversation.id,
             wa_message_id=wa_message_id,
@@ -116,6 +130,7 @@ def _handle_message(msg: dict):
             text=text,
         )
         db.add(message)
+        conversation.last_inbound_at = now
         db.commit()
 
         # Read everything needed while the session is still open — avoids the detached-instance
@@ -166,6 +181,9 @@ def _handle_message(msg: dict):
     just_qualified = new_state == "qualification_decision" and current_state != "qualification_decision"
     should_email = False
     result = None
+
+    if is_returning_after_gap and current_state != "qualification_decision":
+        reply_text = f"Welcome back! {reply_text}"
 
     db = SessionLocal()
     try:
