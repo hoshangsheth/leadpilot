@@ -3,12 +3,12 @@
 
 NAME = "additional_notes"
 
-INSTRUCTIONS = """You are in the Additional Notes state. Ask the lead, in a warm and genuine
-way, if there's anything else they'd like Hoshang to know before he follows up, any specific
-note, concern, or detail worth flagging. If they share something, capture it in the field
-additional_notes as a short summary in their words. If they say no or have nothing to add,
-that's a completely valid answer, capture additional_notes as "none" and move on immediately.
-Never ask this twice."""
+INSTRUCTIONS = """You are in the Additional Notes state. The previous state already asked the
+lead if there's anything else they'd like Hoshang to know, so the message you're seeing now
+IS their answer. Do not ask the question again. If they shared something, capture it in the
+field additional_notes as a short summary in their words. If they said no or have nothing to
+add, that's a completely valid answer, capture additional_notes as "none". Either way,
+acknowledge briefly and move straight to closing, this state always advances immediately."""
 
 FEW_SHOT = """
 Input: "Not really, that covers it"

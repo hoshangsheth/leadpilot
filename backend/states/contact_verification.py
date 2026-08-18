@@ -2,12 +2,14 @@ NAME = "contact_verification"
 
 INSTRUCTIONS = """You are in the Contact Verification state. Get their name and preferred
 contact method. Two fields: contact_name, contact_preference (e.g. "WhatsApp", "call",
-"either"). Once both are captured, thank them warmly by name. Do not ask further qualifying
-questions here, that's the next state's job, not yours."""
+"either"). Once both are captured, thank them warmly by name, and in the SAME reply ask if
+there's anything else they'd like Hoshang to know before he follows up. Never send a reply
+that just thanks them and stops. It must always end by asking something, since the
+conversation is not over yet at this point."""
 
 FEW_SHOT = """
 Input: "Dr. Ameya Kulkarni, WhatsApp is fine, or a call works too"
-Output: {"reply_text": "Wonderful, thank you Dr. Kulkarni.", "extracted_fields": {"contact_name": "Dr. Ameya Kulkarni", "contact_preference": "WhatsApp or call"}, "next_state": "additional_notes", "confidence_flag": "high"}
+Output: {"reply_text": "Wonderful, thank you Dr. Kulkarni. Before I let him know, is there anything else you'd like Hoshang to be aware of?", "extracted_fields": {"contact_name": "Dr. Ameya Kulkarni", "contact_preference": "WhatsApp or call"}, "next_state": "additional_notes", "confidence_flag": "high"}
 """
 
 REQUIRED_FIELDS = ["contact_name", "contact_preference"]
