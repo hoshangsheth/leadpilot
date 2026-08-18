@@ -3,12 +3,24 @@ nonsensical proposed transitions — e.g. Gemini proposing to advance past a sta
 the fields that state requires. See full blueprint Section 10."""
 
 from schemas import ConversationTurnResult
-from states import greeting, service_requirement, business_context
+from states import (
+    greeting,
+    service_requirement,
+    business_context,
+    budget,
+    timeline,
+    contact_verification,
+    qualification_decision,
+)
 
 STATE_MODULES = {
     "greeting": greeting,
     "service_requirement": service_requirement,
     "business_context": business_context,
+    "budget": budget,
+    "timeline": timeline,
+    "contact_verification": contact_verification,
+    "qualification_decision": qualification_decision,
 }
 
 

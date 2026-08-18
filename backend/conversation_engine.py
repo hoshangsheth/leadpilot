@@ -26,6 +26,7 @@ Example:
     user_prompt = f"""CURRENT_STATE: {state_name}
 FIELDS_COLLECTED: {collected_fields}
 FIELDS_MISSING: {missing}
+REQUIRED_FIELD_KEY_NAMES (use these EXACT keys in extracted_fields, no synonyms): {module.REQUIRED_FIELDS}
 CONVERSATION_HISTORY: {history[-6:]}
 LATEST_USER_MESSAGE: {user_text}
 
@@ -41,6 +42,15 @@ async def process_message(state_name: str, collected_fields: dict, history: list
     result = await call_gemini(user_prompt, system_instruction)
     if result is None:
         return None
+
+    # Deterministic alias normalization before validation — see states/contact_verification.py
+    # for why this exists.
+    module = STATE_MODULES[state_name]
+    aliases = getattr(module, "ALIASES", {})
+    if aliases:
+        result.extracted_fields = {
+            aliases.get(k, k): v for k, v in result.extracted_fields.items()
+        }
 
     result = validate_turn_result(result, state_name, collected_fields)
 

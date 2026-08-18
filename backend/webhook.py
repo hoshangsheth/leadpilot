@@ -8,9 +8,10 @@ from sqlalchemy.exc import IntegrityError
 
 import config
 from db import SessionLocal
-from models import Lead, Conversation, Message
+from models import Lead, Conversation, Message, Qualification
 from whatsapp_client import send_message
 from conversation_engine import process_message
+from scoring import score_lead
 
 router = APIRouter()
 logger = logging.getLogger("leadpilot.webhook")
@@ -145,6 +146,7 @@ def _handle_message(msg: dict):
         return
 
     reply_text, new_state, updated_fields = outcome
+    just_qualified = new_state == "qualification_decision" and current_state != "qualification_decision"
 
     db = SessionLocal()
     try:
@@ -159,6 +161,20 @@ def _handle_message(msg: dict):
                 text=reply_text,
             )
         )
+        if just_qualified:
+            result = score_lead(updated_fields)
+            db.add(
+                Qualification(
+                    conversation_id=conversation_id,
+                    score=result["score"],
+                    breakdown=result["breakdown"],
+                    qualified=result["qualified"],
+                )
+            )
+            logger.info(
+                "Conversation %s reached qualification_decision: score=%s qualified=%s",
+                conversation_id, result["score"], result["qualified"],
+            )
         db.commit()
     finally:
         db.close()
