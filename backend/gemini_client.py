@@ -42,6 +42,16 @@ async def call_gemini(prompt: str, system_instruction: str) -> ConversationTurnR
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
                     response_mime_type="application/json",
+                    # We declare no tools/functions — AFC scanning adds pure overhead here,
+                    # and the SDK itself warns generate_content isn't the intended AFC path.
+                    # (response_schema was also tried here, but ConversationTurnResult's
+                    # dict[str, str] field produces an `additionalProperties` schema, which
+                    # Gemini's Developer API rejects — Enterprise-only. Reverted.)
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                    # gemini-3.6-flash uses thinking_level (string enum), not the older numeric
+                    # thinking_budget — that rejected with 400 INVALID_ARGUMENT. Defaults to
+                    # "medium"; this task (short extraction + reply) doesn't need deep reasoning.
+                    thinking_config=types.ThinkingConfig(thinking_level="minimal"),
                 ),
             )
             raw = json.loads(response.text)
