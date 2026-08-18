@@ -12,6 +12,7 @@ from models import Lead, Conversation, Message, Qualification
 from whatsapp_client import send_message
 from conversation_engine import process_message, MAX_MESSAGES
 from scoring import score_lead
+from email_service import send_qualified_lead_email
 
 router = APIRouter()
 logger = logging.getLogger("leadpilot.webhook")
@@ -154,20 +155,15 @@ def _handle_message(msg: dict):
 
     reply_text, new_state, updated_fields = outcome
     just_qualified = new_state == "qualification_decision" and current_state != "qualification_decision"
+    should_email = False
+    result = None
 
     db = SessionLocal()
     try:
         conversation = db.get(Conversation, conversation_id)
         conversation.state = new_state
         conversation.collected_fields = updated_fields
-        db.add(
-            Message(
-                conversation_id=conversation_id,
-                wa_message_id=f"{wa_message_id}-reply",
-                direction="out",
-                text=reply_text,
-            )
-        )
+
         if just_qualified:
             result = score_lead(updated_fields)
             db.add(
@@ -182,9 +178,29 @@ def _handle_message(msg: dict):
                 "Conversation %s reached qualification_decision: score=%s qualified=%s",
                 conversation_id, result["score"], result["qualified"],
             )
+            # The conversational funnel is done either way — stop future auto-replies so a
+            # disqualified lead messaging again doesn't trigger further (paid) Gemini calls.
+            conversation.lead.human_takeover = True
+            if result["qualified"]:
+                # Calendly link is injected deterministically, never model-generated —
+                # a hallucinated/malformed URL in a real lead's WhatsApp is not acceptable.
+                reply_text = f"{reply_text}\n\nFeel free to grab a slot directly: {config.CALENDLY_LINK}"
+                should_email = True
+
+        db.add(
+            Message(
+                conversation_id=conversation_id,
+                wa_message_id=f"{wa_message_id}-reply",
+                direction="out",
+                text=reply_text,
+            )
+        )
         db.commit()
     finally:
         db.close()
+
+    if should_email:
+        send_qualified_lead_email(wa_number, updated_fields, result)
 
     try:
         asyncio.run(send_message(to=wa_number, text=reply_text, last_inbound_at=last_inbound_at))
