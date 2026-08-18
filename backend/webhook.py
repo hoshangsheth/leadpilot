@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import hmac
 import logging
+import time
 
 from fastapi import APIRouter, Request, Response, BackgroundTasks
 from sqlalchemy.exc import IntegrityError
@@ -13,6 +14,7 @@ from whatsapp_client import send_message
 from conversation_engine import process_message, MAX_MESSAGES
 from scoring import score_lead
 from email_service import send_qualified_lead_email
+from observability.logger import log_transition
 
 router = APIRouter()
 logger = logging.getLogger("leadpilot.webhook")
@@ -130,6 +132,7 @@ def _handle_message(msg: dict):
             .all()
         ][::-1]
         conversation_id = conversation.id
+        lead_id = lead.id
         message_count = db.query(Message).filter_by(conversation_id=conversation.id).count()
     except IntegrityError:
         # Duplicate wa_message_id — Meta retried delivery. Already processed, safe to skip.
@@ -143,14 +146,20 @@ def _handle_message(msg: dict):
     # instead of an endless (and costly) back-and-forth. See blueprint Section 10 guardrails.
     if message_count >= MAX_MESSAGES and current_state != "qualification_decision":
         _force_handoff(wa_number, conversation_id, current_state, collected_fields, last_inbound_at)
+        log_transition(lead_id, current_state, "qualification_decision", None, "message_cap_forced")
         return
 
+    t0 = time.monotonic()
     outcome = asyncio.run(process_message(current_state, collected_fields, history, text))
+    gemini_ms = int((time.monotonic() - t0) * 1000)
 
     if outcome is None:
         # Dependency failure (Section 9a) — Gemini unreachable/malformed after retry.
-        # Day 5 hardening adds a proper filler-message + retry-queue; log for now.
+        # No reply is sent — a real filler-message + retry-queue is a v1.5 item (see
+        # v1-leadpilot-blueprint.md); for now the lead simply doesn't get a reply this turn,
+        # which is logged clearly enough to notice and follow up manually if it recurs.
         logger.error("Gemini call failed for conversation_id=%s, no reply sent", conversation_id)
+        log_transition(lead_id, current_state, current_state, gemini_ms, "gemini_failed")
         return
 
     reply_text, new_state, updated_fields = outcome
@@ -202,10 +211,14 @@ def _handle_message(msg: dict):
     if should_email:
         send_qualified_lead_email(wa_number, updated_fields, result)
 
+    send_outcome = "sent"
     try:
         asyncio.run(send_message(to=wa_number, text=reply_text, last_inbound_at=last_inbound_at))
     except Exception:
         logger.exception("Failed to send reply to %s", wa_number)
+        send_outcome = "send_failed"
+
+    log_transition(lead_id, current_state, new_state, gemini_ms, send_outcome)
 
 
 def _force_handoff(wa_number: str, conversation_id: int, current_state: str, collected_fields: dict, last_inbound_at):
