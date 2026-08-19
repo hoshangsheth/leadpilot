@@ -24,7 +24,7 @@ def send_qualified_lead_email(wa_number: str, collected_fields: dict, score_resu
     wa_number = html.escape(wa_number)
 
     subject = f"New Qualified Lead: {name} — {service_type}"
-    html = f"""
+    html_body = f"""
     <h2>New Qualified Lead</h2>
     <p><strong>Score:</strong> {score_result['score']}/100</p>
     <ul>
@@ -45,7 +45,7 @@ def send_qualified_lead_email(wa_number: str, collected_fields: dict, score_resu
             "from": "LeadPilot <onboarding@resend.dev>",
             "to": config.NOTIFY_EMAIL,
             "subject": subject,
-            "html": html,
+            "html": html_body,
         })
     except Exception:
         logger.exception("Failed to send qualified-lead email for wa_number=%s", wa_number)
