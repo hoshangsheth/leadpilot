@@ -9,7 +9,7 @@ import logging
 import time
 from datetime import datetime, timezone, timedelta
 
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import text as sql_text
 
 import config
 from db.db import SessionLocal
@@ -43,10 +43,17 @@ def process_payload(payload: dict):
 
 def handle_message(msg: dict):
     """Persists one inbound WhatsApp message, advances the conversation state machine, and
-    sends the reply (plus qualification email, if this turn just qualified the lead)."""
+    sends the reply (plus qualification email, if this turn just qualified the lead).
+
+    Holds a Postgres advisory lock, keyed by wa_number, for the ENTIRE duration of processing
+    — including the Gemini call — so two near-simultaneous messages from the same lead (a very
+    common real pattern: "Hi" immediately followed by their actual question) can never race on
+    creating the Lead/Conversation row or on the final state write. The lock only ever blocks
+    messages from the SAME lead; unrelated leads process fully in parallel.
+    """
     wa_message_id = msg["id"]
     wa_number = msg["from"]
-    text = msg.get("text", {}).get("body", "")
+    body_text = msg.get("text", {}).get("body", "")
     msg_type = msg.get("type")
 
     if msg_type != "text":
@@ -54,16 +61,26 @@ def handle_message(msg: dict):
         # Real "text only for now" redirect reply is a Stage 5 hardening item.
         return
 
-    if not text.strip():
+    if not body_text.strip():
         logger.info("Ignoring empty message body from=%s", wa_number)
         return
 
-    if len(text) > MAX_TEXT_LENGTH:
-        logger.warning("Truncating oversized message (%d chars) from=%s", len(text), wa_number)
-        text = text[:MAX_TEXT_LENGTH]
+    if len(body_text) > MAX_TEXT_LENGTH:
+        logger.warning("Truncating oversized message (%d chars) from=%s", len(body_text), wa_number)
+        body_text = body_text[:MAX_TEXT_LENGTH]
 
     db = SessionLocal()
     try:
+        db.execute(sql_text("SELECT pg_advisory_xact_lock(hashtext(:wa_number))"), {"wa_number": wa_number})
+
+        if db.query(Message).filter_by(wa_message_id=wa_message_id).first() is not None:
+            # Duplicate delivery of the same message (Meta retry). Checked up front, before
+            # any real work or Gemini spend, now that the lock rules out this also being a
+            # genuine concurrent race on the insert itself.
+            db.rollback()
+            logger.info("Duplicate message_id=%s, skipping", wa_message_id)
+            return
+
         lead = db.query(Lead).filter_by(wa_number=wa_number).first()
         if lead is None:
             lead = Lead(wa_number=wa_number)
@@ -83,37 +100,29 @@ def handle_message(msg: dict):
 
         if lead.human_takeover:
             logger.info("Lead %s has human_takeover set — bot stays silent", lead.id)
-            message = Message(
-                conversation_id=conversation.id, wa_message_id=wa_message_id, direction="in", text=text
-            )
-            db.add(message)
+            db.add(Message(
+                conversation_id=conversation.id, wa_message_id=wa_message_id, direction="in", text=body_text
+            ))
             db.commit()
             return
 
-        # Capture the PREVIOUS inbound time before overwriting — used for both the welcome-back
-        # gap check and (previously, silently broken) the 24h-window check. last_inbound_at was
-        # never actually being refreshed after conversation creation until this fix.
+        # Capture the PREVIOUS inbound time before overwriting — used for the welcome-back
+        # gap check. last_inbound_at was never actually being refreshed after conversation
+        # creation until an earlier fix; kept as an explicit local, not re-read post-commit.
         previous_inbound_at = conversation.last_inbound_at
         now = datetime.now(timezone.utc)
         if previous_inbound_at.tzinfo is None:
             previous_inbound_at = previous_inbound_at.replace(tzinfo=timezone.utc)
-        is_returning_after_gap = (
-            message_count_before_this := db.query(Message).filter_by(conversation_id=conversation.id).count()
-        ) > 0 and (now - previous_inbound_at) > timedelta(hours=WELCOME_BACK_GAP_HOURS)
+        message_count_before_this = db.query(Message).filter_by(conversation_id=conversation.id).count()
+        is_returning_after_gap = message_count_before_this > 0 and (
+            now - previous_inbound_at
+        ) > timedelta(hours=WELCOME_BACK_GAP_HOURS)
 
-        message = Message(
-            conversation_id=conversation.id,
-            wa_message_id=wa_message_id,
-            direction="in",
-            text=text,
-        )
-        db.add(message)
+        db.add(Message(
+            conversation_id=conversation.id, wa_message_id=wa_message_id, direction="in", text=body_text
+        ))
         conversation.last_inbound_at = now
-        db.commit()
 
-        # Read everything needed while the session is still open — avoids the detached-instance
-        # bug hit in Stage 1 (accessing ORM attributes after db.close()).
-        last_inbound_at = conversation.last_inbound_at
         current_state = conversation.state
         collected_fields = dict(conversation.collected_fields or {})
         history = [
@@ -124,57 +133,50 @@ def handle_message(msg: dict):
             .limit(6)
             .all()
         ][::-1]
-        conversation_id = conversation.id
         lead_id = lead.id
-        message_count = db.query(Message).filter_by(conversation_id=conversation.id).count()
-    except IntegrityError:
-        # Duplicate wa_message_id — Meta retried delivery. Already processed, safe to skip.
-        db.rollback()
-        logger.info("Duplicate message_id=%s, skipping", wa_message_id)
-        return
-    finally:
-        db.close()
+        message_count = message_count_before_this + 1
 
-    # Message cap — bounds worst-case Gemini spend per lead and forces a clean handoff
-    # instead of an endless (and costly) back-and-forth. See blueprint Section 10 guardrails.
-    if message_count >= MAX_MESSAGES and current_state != "qualification_decision":
-        _force_handoff(wa_number, conversation_id, current_state, collected_fields, last_inbound_at)
-        log_transition(lead_id, current_state, "qualification_decision", None, "message_cap_forced")
-        return
+        # Message cap — bounds worst-case Gemini spend per lead and forces a clean handoff
+        # instead of an endless (and costly) back-and-forth. See blueprint Section 10.
+        if message_count >= MAX_MESSAGES and current_state != "qualification_decision":
+            reply_text, result = _apply_force_handoff(db, conversation, collected_fields)
+            db.commit()
+            log_transition(lead_id, current_state, "qualification_decision", None, "message_cap_forced")
+            if result["qualified"]:
+                send_qualified_lead_email(wa_number, collected_fields, result)
+            _send_reply(wa_number, reply_text, now)
+            return
 
-    t0 = time.monotonic()
-    outcome = asyncio.run(process_message(current_state, collected_fields, history, text))
-    gemini_ms = int((time.monotonic() - t0) * 1000)
+        t0 = time.monotonic()
+        outcome = asyncio.run(process_message(current_state, collected_fields, history, body_text))
+        gemini_ms = int((time.monotonic() - t0) * 1000)
 
-    if outcome is None:
-        # Dependency failure (Section 9a) — Gemini unreachable/malformed after retry.
-        # No reply is sent — a real filler-message + retry-queue is a v1.5 item (see
-        # v1-leadpilot-blueprint.md); for now the lead simply doesn't get a reply this turn,
-        # which is logged clearly enough to notice and follow up manually if it recurs.
-        logger.error("Gemini call failed for conversation_id=%s, no reply sent", conversation_id)
-        log_transition(lead_id, current_state, current_state, gemini_ms, "gemini_failed")
-        return
+        if outcome is None:
+            # Dependency failure (Section 9a) — Gemini unreachable/malformed after retry. No
+            # reply is sent this turn; still commit the inbound message + last_inbound_at
+            # update so the lock releases cleanly and the next attempt sees accurate history.
+            db.commit()
+            logger.error("Gemini call failed for conversation_id=%s, no reply sent", conversation.id)
+            log_transition(lead_id, current_state, current_state, gemini_ms, "gemini_failed")
+            return
 
-    reply_text, new_state, updated_fields = outcome
-    just_qualified = new_state == "qualification_decision" and current_state != "qualification_decision"
-    should_email = False
-    result = None
+        reply_text, new_state, updated_fields = outcome
+        just_qualified = new_state == "qualification_decision" and current_state != "qualification_decision"
+        should_email = False
+        result = None
 
-    if is_returning_after_gap and current_state != "qualification_decision":
-        reply_text = f"Welcome back! {reply_text}"
+        if is_returning_after_gap and current_state != "qualification_decision":
+            reply_text = f"Welcome back! {reply_text}"
 
-    db = SessionLocal()
-    try:
-        conversation = db.get(Conversation, conversation_id)
         conversation.state = new_state
         conversation.collected_fields = updated_fields
 
         if just_qualified:
             result = score_lead(updated_fields)
-            _upsert_qualification(db, conversation_id, result)
+            _upsert_qualification(db, conversation.id, result)
             logger.info(
                 "Conversation %s reached qualification_decision: score=%s qualified=%s",
-                conversation_id, result["score"], result["qualified"],
+                conversation.id, result["score"], result["qualified"],
             )
             # The conversational funnel is done either way — stop future auto-replies so a
             # disqualified lead messaging again doesn't trigger further (paid) Gemini calls.
@@ -185,14 +187,12 @@ def handle_message(msg: dict):
                 reply_text = f"{reply_text}\n\nFeel free to grab a slot directly: {config.CALENDLY_LINK}"
                 should_email = True
 
-        db.add(
-            Message(
-                conversation_id=conversation_id,
-                wa_message_id=f"{wa_message_id}-reply",
-                direction="out",
-                text=reply_text,
-            )
-        )
+        db.add(Message(
+            conversation_id=conversation.id,
+            wa_message_id=f"{wa_message_id}-reply",
+            direction="out",
+            text=reply_text,
+        ))
         db.commit()
     finally:
         db.close()
@@ -200,14 +200,19 @@ def handle_message(msg: dict):
     if should_email:
         send_qualified_lead_email(wa_number, updated_fields, result)
 
-    send_outcome = "sent"
+    send_outcome = _send_reply(wa_number, reply_text, now)
+    log_transition(lead_id, current_state, new_state, gemini_ms, send_outcome)
+
+
+def _send_reply(wa_number: str, reply_text: str, last_inbound_at) -> str:
+    """Sends the WhatsApp reply after the DB transaction (and advisory lock) has already
+    released — no reason to hold either open for a network call that doesn't touch the DB."""
     try:
         asyncio.run(send_message(to=wa_number, text=reply_text, last_inbound_at=last_inbound_at))
+        return "sent"
     except Exception:
         logger.exception("Failed to send reply to %s", wa_number)
-        send_outcome = "send_failed"
-
-    log_transition(lead_id, current_state, new_state, gemini_ms, send_outcome)
+        return "send_failed"
 
 
 def _upsert_qualification(db, conversation_id: int, result: dict):
@@ -230,15 +235,20 @@ def _upsert_qualification(db, conversation_id: int, result: dict):
         )
 
 
-def _force_handoff(wa_number: str, conversation_id: int, current_state: str, collected_fields: dict, last_inbound_at):
+def _apply_force_handoff(db, conversation: Conversation, collected_fields: dict) -> tuple[str, dict]:
     """Message cap hit — no more Gemini calls for this conversation. Deterministic reply,
     force to qualification_decision with an 'incomplete' flag, hand off to Hoshang directly.
     See full blueprint Section 10/11 — forced handoff with partial data flagged incomplete.
 
-    Still sends the qualified-lead email + Calendly link if the fields actually collected
-    genuinely score as qualified — "incomplete" only means additional_notes wasn't reached,
-    it doesn't mean the real scoring fields are missing. A lead who answered everything real
-    and just got cut off one exchange short still deserves the notification and the link."""
+    Still qualifies (and the caller still emails) if the fields actually collected genuinely
+    score as qualified — "incomplete" only means additional_notes wasn't reached, it doesn't
+    mean the real scoring fields are missing. A lead who answered everything real and just got
+    cut off one exchange short still deserves the notification and the link.
+
+    Mutates `conversation` in place on the caller's already-open session/transaction rather
+    than opening its own — this used to run in a separate SessionLocal(), which meant it
+    wasn't covered by the same advisory lock as the rest of this turn's processing.
+    """
     reply_text = (
         "Thanks so much for the detail so far. I want to make sure Hoshang picks this up "
         "directly rather than keep you going back and forth here. He'll follow up with you shortly."
@@ -249,34 +259,19 @@ def _force_handoff(wa_number: str, conversation_id: int, current_state: str, col
     if result["qualified"]:
         reply_text = f"{reply_text}\n\nFeel free to grab a slot directly: {config.CALENDLY_LINK}"
 
-    db = SessionLocal()
-    try:
-        conversation = db.get(Conversation, conversation_id)
-        conversation.state = "qualification_decision"
-        conversation.collected_fields = collected_fields
-        conversation.lead.human_takeover = True
+    conversation.state = "qualification_decision"
+    conversation.collected_fields = collected_fields
+    conversation.lead.human_takeover = True
 
-        db.add(
-            Message(
-                conversation_id=conversation_id,
-                wa_message_id=f"forced-handoff-{conversation_id}-{int(last_inbound_at.timestamp())}",
-                direction="out",
-                text=reply_text,
-            )
-        )
-        _upsert_qualification(db, conversation_id, result)
-        db.commit()
-        logger.warning(
-            "Conversation %s hit message cap (%d), forced handoff — score=%s qualified=%s",
-            conversation_id, MAX_MESSAGES, result["score"], result["qualified"],
-        )
-    finally:
-        db.close()
-
-    if result["qualified"]:
-        send_qualified_lead_email(wa_number, collected_fields, result)
-
-    try:
-        asyncio.run(send_message(to=wa_number, text=reply_text, last_inbound_at=last_inbound_at))
-    except Exception:
-        logger.exception("Failed to send forced-handoff message to %s", wa_number)
+    db.add(Message(
+        conversation_id=conversation.id,
+        wa_message_id=f"forced-handoff-{conversation.id}-{int(datetime.now(timezone.utc).timestamp())}",
+        direction="out",
+        text=reply_text,
+    ))
+    _upsert_qualification(db, conversation.id, result)
+    logger.warning(
+        "Conversation %s hit message cap (%d), forced handoff — score=%s qualified=%s",
+        conversation.id, MAX_MESSAGES, result["score"], result["qualified"],
+    )
+    return reply_text, result
