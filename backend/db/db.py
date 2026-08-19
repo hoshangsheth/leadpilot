@@ -10,7 +10,7 @@ Base = declarative_base()
 
 
 def init_db():
-    import models  # noqa: F401 — ensures models are registered before create_all
+    from db import models  # noqa: F401 — ensures models are registered before create_all
     Base.metadata.create_all(bind=engine)
 
 

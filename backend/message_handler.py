@@ -12,12 +12,12 @@ from datetime import datetime, timezone, timedelta
 from sqlalchemy.exc import IntegrityError
 
 import config
-from db import SessionLocal
-from models import Lead, Conversation, Message, Qualification
-from whatsapp_client import send_message
+from db.db import SessionLocal
+from db.models import Lead, Conversation, Message, Qualification
+from integrations.whatsapp_client import send_message
 from conversation_engine import process_message, MAX_MESSAGES
 from scoring import score_lead
-from email_service import send_qualified_lead_email
+from integrations.email_service import send_qualified_lead_email
 from observability.logger import log_transition
 
 logger = logging.getLogger("leadpilot.webhook")

@@ -5,7 +5,7 @@ state for the caller to persist.
 
 import logging
 
-from gemini_client import call_gemini
+from integrations.gemini_client import call_gemini
 from validation.ai_output_rules import validate_turn_result, STATE_MODULES
 from company_knowledge import as_prompt_block as company_knowledge_block
 

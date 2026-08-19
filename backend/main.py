@@ -5,7 +5,7 @@ router, and a bare health-check endpoint for the hosting platform.
 import logging
 
 from fastapi import FastAPI
-from db import init_db
+from db.db import init_db
 from webhook import router as webhook_router
 
 logging.basicConfig(

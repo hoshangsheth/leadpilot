@@ -6,7 +6,7 @@ a completed conversation).
 from datetime import datetime, timezone
 from sqlalchemy import String, DateTime, ForeignKey, Text, Boolean, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from db import Base
+from db.db import Base
 
 
 def utcnow() -> datetime:
