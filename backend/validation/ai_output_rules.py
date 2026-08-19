@@ -42,6 +42,48 @@ def _fields_satisfied(state_name: str, merged_fields: dict) -> bool:
     return True
 
 
+def resolve_effective_state(current_state: str, collected_fields: dict) -> str:
+    """Given the fields already collected BEFORE this turn's new message, find the state
+    that should actually be presented to the model this turn — walking forward past any
+    state whose requirements are objectively already satisfied.
+
+    Without this, `conversation.state` only advances when the model itself happens to
+    propose jumping ahead in validate_turn_result — but the model is told CURRENT_STATE is
+    whatever was last persisted, so if it stays conservative (matching its own state's
+    few-shot examples) turn after turn, the funnel can visibly lag several real steps behind
+    what's actually been collected, only catching up in one big leap whenever the model
+    finally proposes a distant state (observed live twice on 2026-08-19: state stuck
+    reporting `greeting` for 5-6 turns of real progress, then jumping straight to
+    `additional_notes`). Recomputing the effective state up front keeps every turn's prompt
+    (and the persisted state) in sync with reality, instead of relying on the model to notice.
+
+    A vacuous state (empty REQUIRED_FIELDS -- currently `greeting` and `additional_notes`)
+    has no field-based evidence that its own turn actually happened, so it can't be
+    auto-skipped the same way: skipping `additional_notes` the instant contact info is known
+    would mean the closing "anything else?" question never actually gets asked. `greeting` is
+    the one deliberate exception -- its only job is the opening welcome, which is
+    definitionally done the moment ANY other field exists, so it auto-advances once the
+    conversation has produced anything at all. Every other vacuous state stays gated behind
+    an actual model-driven transition in validate_turn_result.
+    """
+    if current_state not in STATE_ORDER:
+        return current_state
+    idx = STATE_ORDER.index(current_state)
+
+    if idx == 0 and collected_fields:
+        idx = 1
+
+    while idx < len(STATE_ORDER) - 1:
+        state_name = STATE_ORDER[idx]
+        if not STATE_MODULES[state_name].REQUIRED_FIELDS:
+            break
+        if not _fields_satisfied(state_name, collected_fields):
+            break
+        idx += 1
+
+    return STATE_ORDER[idx]
+
+
 def validate_turn_result(
     result: ConversationTurnResult, current_state: str, collected_fields: dict
 ) -> ConversationTurnResult:

@@ -6,7 +6,7 @@ state for the caller to persist.
 import logging
 
 from integrations.gemini_client import call_gemini
-from validation.ai_output_rules import validate_turn_result, STATE_MODULES
+from validation.ai_output_rules import validate_turn_result, resolve_effective_state, STATE_MODULES
 from company_knowledge import as_prompt_block as company_knowledge_block
 
 logger = logging.getLogger("leadpilot.engine")
@@ -96,6 +96,10 @@ Generate the next reply and extract any new fields from the latest message."""
 
 async def process_message(state_name: str, collected_fields: dict, history: list[str], user_text: str):
     """Returns (reply_text, new_state, updated_collected_fields) or None on unrecoverable failure."""
+    # Catch the persisted state up to what the already-collected fields actually support
+    # BEFORE building the prompt — see resolve_effective_state's docstring for why this
+    # can't just be left to the model to notice turn over turn.
+    state_name = resolve_effective_state(state_name, collected_fields)
     system_instruction, user_prompt = build_prompt(state_name, collected_fields, history, user_text)
 
     result = await call_gemini(user_prompt, system_instruction)
