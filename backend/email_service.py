@@ -1,3 +1,7 @@
+"""Sends the qualified-lead notification email to Hoshang via Resend, with every
+lead-controlled field HTML-escaped before interpolation into the email body.
+"""
+
 import html
 import logging
 

@@ -1,3 +1,6 @@
+"""Collects the lead's name and a genuinely usable contact detail (not just a bare method
+name), then closes by asking if there's anything else they'd like relayed to Hoshang."""
+
 NAME = "contact_verification"
 
 INSTRUCTIONS = """You are in the Contact Verification state. Get their name and preferred

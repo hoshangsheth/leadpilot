@@ -1,6 +1,7 @@
-# Terminal state for the conversational funnel — no further Gemini-driven questions.
-# Scoring is fully rule-based (scoring.py), not LLM-judged, per the blueprint's
-# deterministic-first ladder (explainability — "why did this lead score 72?" must be answerable).
+"""Terminal state for the conversational funnel — no further Gemini-driven questions.
+Scoring is fully rule-based (scoring.py), not LLM-judged, per the blueprint's
+deterministic-first ladder (explainability — "why did this lead score 72?" must be answerable).
+"""
 
 NAME = "qualification_decision"
 

@@ -1,3 +1,8 @@
+"""Core conversation engine: builds the per-state Gemini prompt, calls the model, normalizes
+known field-name aliases, runs business-rule validation, and returns the merged conversation
+state for the caller to persist.
+"""
+
 import logging
 
 from gemini_client import call_gemini

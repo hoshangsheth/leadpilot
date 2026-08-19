@@ -1,3 +1,7 @@
+"""Structured per-turn transition logging — one grep-able line per state change, no external
+tracing tool needed for this scale.
+"""
+
 import logging
 
 logger = logging.getLogger("leadpilot.transitions")

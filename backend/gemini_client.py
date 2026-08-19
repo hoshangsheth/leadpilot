@@ -1,4 +1,8 @@
-# Uses the `google-genai` SDK (google-generativeai is deprecated/EOL as of this build).
+"""Thin wrapper around the Gemini API: sends the per-state prompt, retries once on a
+schema-invalid or failed response, and returns a validated ConversationTurnResult or None.
+Uses the `google-genai` SDK (google-generativeai is deprecated/EOL as of this build).
+"""
+
 import json
 import logging
 

@@ -1,6 +1,7 @@
 """Business-rule validation, run after schema validation. Catches schema-valid but
 nonsensical proposed transitions — e.g. Gemini proposing to advance past a state without
-the fields that state requires. See full blueprint Section 10."""
+the fields that state requires. See full blueprint Section 10.
+"""
 
 from schemas import ConversationTurnResult
 from states import (

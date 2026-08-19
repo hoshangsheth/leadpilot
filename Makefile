@@ -3,9 +3,3 @@ dev:
 
 tunnel:
 	ngrok http 8000
-
-seed:
-	cd backend && python seed.py
-
-test:
-	cd backend && pytest tests/ -v

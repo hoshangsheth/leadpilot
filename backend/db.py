@@ -1,3 +1,5 @@
+"""Database engine/session setup (SQLAlchemy, Postgres via Supabase) and schema init."""
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 import config

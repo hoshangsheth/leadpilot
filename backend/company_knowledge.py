@@ -1,7 +1,8 @@
-# Factual reference for Hoshang's business — sourced directly from hoshangsheth.com
-# (lib/content.js, pricing page) so the assistant never invents numbers or positioning.
-# Kept as plain data, not prose baked into a prompt, so it's easy to keep in sync if the
-# site's pricing changes — update this file, not the state prompts.
+"""Factual reference for Hoshang's business — sourced directly from hoshangsheth.com
+(lib/content.js, pricing page) so the assistant never invents numbers or positioning.
+Kept as plain data, not prose baked into a prompt, so it's easy to keep in sync if the
+site's pricing changes — update this file, not the state prompts.
+"""
 
 FLAGSHIP = {
     "name": "AI Automation & Agentic Systems",

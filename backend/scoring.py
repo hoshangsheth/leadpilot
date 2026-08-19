@@ -1,6 +1,7 @@
-# Rule-based lead scoring — deliberately not LLM-judged. An LLM-derived numeric score is
-# opaque and hard to defend ("why did this lead score 72?"); a weighted rule set over
-# collected fields is fully auditable. See full blueprint Section 10.
+"""Rule-based lead scoring — deliberately not LLM-judged. An LLM-derived numeric score is
+opaque and hard to defend ("why did this lead score 72?"); a weighted rule set over
+collected fields is fully auditable. See full blueprint Section 10.
+"""
 
 QUALIFIED_THRESHOLD = 50
 

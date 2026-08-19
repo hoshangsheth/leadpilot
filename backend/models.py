@@ -1,3 +1,8 @@
+"""SQLAlchemy ORM models: Lead (one per WhatsApp number), Conversation (the state-machine
+instance for a lead), Message (in/out transcript), and Qualification (the scored outcome of
+a completed conversation).
+"""
+
 from datetime import datetime, timezone
 from sqlalchemy import String, DateTime, ForeignKey, Text, Boolean, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship

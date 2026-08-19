@@ -1,3 +1,5 @@
+"""Finds out how urgent the lead's need is."""
+
 NAME = "timeline"
 
 INSTRUCTIONS = """You are in the Timeline state. Find out how urgent this is for them. One

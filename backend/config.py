@@ -1,3 +1,7 @@
+"""Central config: loads every environment variable this service needs from `.env` (or the
+host's environment in production) into module-level constants used throughout the app.
+"""
+
 import os
 from dotenv import load_dotenv
 

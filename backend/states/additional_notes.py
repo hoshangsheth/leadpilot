@@ -1,5 +1,6 @@
-# Optional closing question before handoff. No required fields, since "no, that's everything"
-# is a completely valid answer and must never block the conversation from closing.
+"""Optional closing question before handoff. No required fields, since "no, that's everything"
+is a completely valid answer and must never block the conversation from closing.
+"""
 
 NAME = "additional_notes"
 

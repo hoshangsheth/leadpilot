@@ -1,3 +1,6 @@
+"""Opening state — introduces the assistant, welcomes the lead, and finds out what business
+they run and what they want automated."""
+
 NAME = "greeting"
 
 INSTRUCTIONS = """You are in the Greeting state. Your job: clearly introduce yourself as

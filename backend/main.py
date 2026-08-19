@@ -1,3 +1,7 @@
+"""FastAPI application entrypoint. Wires up logging, the DB schema, the WhatsApp webhook
+router, and a bare health-check endpoint for the hosting platform.
+"""
+
 import logging
 
 from fastapi import FastAPI

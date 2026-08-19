@@ -1,3 +1,5 @@
+"""Finds out the rough size/shape of the lead's operation (solo vs. multiple staff/locations)."""
+
 NAME = "business_context"
 
 INSTRUCTIONS = """You are in the Business Context state. Find out the rough size/shape of

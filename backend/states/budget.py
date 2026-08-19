@@ -1,3 +1,5 @@
+"""Asks for a rough budget range, accepting "not disclosed" as a valid, non-blocking answer."""
+
 NAME = "budget"
 
 INSTRUCTIONS = """You are in the Budget state. Ask for a rough budget range, even a loose one.

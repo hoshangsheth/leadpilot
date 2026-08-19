@@ -1,3 +1,7 @@
+"""Outbound WhatsApp sending via Meta's Cloud API — free-text messages only, gated by the
+24-hour customer-service session window.
+"""
+
 from datetime import datetime, timezone, timedelta
 import httpx
 import config

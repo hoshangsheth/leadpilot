@@ -1,6 +1,7 @@
-# Merged Service Identification + Requirement Gathering, per the v1 lean blueprint
-# (Hoshang already knows his own 4 service categories — no need for a separate
-# discovery state the way a generic client project would need).
+"""Merged Service Identification + Requirement Gathering, per the v1 lean blueprint
+(Hoshang already knows his own 4 service categories — no need for a separate
+discovery state the way a generic client project would need).
+"""
 
 NAME = "service_requirement"
 
