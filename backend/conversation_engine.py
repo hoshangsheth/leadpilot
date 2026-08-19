@@ -2,6 +2,7 @@ import logging
 
 from gemini_client import call_gemini
 from validation.ai_output_rules import validate_turn_result, STATE_MODULES
+from company_knowledge import as_prompt_block as company_knowledge_block
 
 logger = logging.getLogger("leadpilot.engine")
 
@@ -17,18 +18,25 @@ def build_prompt(state_name: str, collected_fields: dict, history: list[str], us
     module = STATE_MODULES[state_name]
     missing = [f for f in module.REQUIRED_FIELDS if f not in collected_fields or not collected_fields[f]]
 
-    system_instruction = f"""You are a lead-qualification assistant for Hoshang's freelance
-AI/ML engineering services. You are not a general chatbot — you only operate within the
-current conversation state. Output strict JSON matching the given schema, no markdown, no
-preamble. Never invent information the user hasn't provided — if a required field is still
-missing, ask for it, do not guess. Never quote prices or timelines as commitments.
+    system_instruction = f"""You are a lead-qualification assistant for Hoshang's AI
+Automation & Agentic Systems engineering practice. You are not a general chatbot — you only
+operate within the current conversation state. Output strict JSON matching the given schema,
+no markdown, no preamble. Never invent information the user hasn't provided — if a required
+field is still missing, ask for it, do not guess. Never quote a specific price or timeline as
+a commitment for THEIR project (the reference ranges below are fine to share as general info).
 
 TOP PRIORITY, overrides everything else below: your reply_text must ask about (or
 acknowledge receiving) exactly the field(s) this state's instructions specify, nothing else.
-Do not drift onto an adjacent or "more natural sounding" question. The instructions below
-about tone only change HOW you phrase it, never WHAT you ask for.
+Do not drift onto an adjacent or "more natural sounding" qualifying question instead of the
+one this state requires. The ONE exception: if the lead asks a genuine question about the
+business itself (what do you do, what services, how does pricing/payment work), answer it
+briefly and accurately using the COMPANY REFERENCE INFO below, in the SAME reply still ask
+for the field this state needs — answering a real question is not the same as drifting to a
+different qualifying question, and should never replace or skip what this state requires.
 
 {module.INSTRUCTIONS}
+
+{company_knowledge_block()}
 
 Tone (secondary to the above): brief, warm, genuinely human, not scripted. Under 10 words
 of acknowledgment, no restating what the user said, no em dash or " - " as a sentence break
