@@ -4,6 +4,7 @@ state for the caller to persist.
 """
 
 import logging
+import re
 
 from integrations.gemini_client import call_gemini
 from validation.ai_output_rules import validate_turn_result, resolve_effective_state, STATE_MODULES
@@ -34,6 +35,16 @@ ALL_FIELD_KEYS = list(dict.fromkeys(
 ALL_ALIASES: dict[str, str] = {}
 for _module in STATE_MODULES.values():
     ALL_ALIASES.update(getattr(_module, "ALIASES", {}))
+
+# The prompt already instructs no em dash, but an LLM occasionally ignores a style rule
+# under load. Rather than trust compliance, strip it deterministically -- same reasoning as
+# the Calendly link being injected in code instead of model-generated, and every field being
+# HTML-escaped instead of trusted: never rely on the model alone for something enforceable.
+_DASH_BREAK_RE = re.compile(r"\s*[—–]\s*")
+
+
+def _strip_dashes(reply_text: str) -> str:
+    return _DASH_BREAK_RE.sub(", ", reply_text).strip()
 
 
 def build_prompt(state_name: str, collected_fields: dict, history: list[str], user_text: str) -> tuple[str, str]:
@@ -105,6 +116,8 @@ async def process_message(state_name: str, collected_fields: dict, history: list
     result = await call_gemini(user_prompt, system_instruction)
     if result is None:
         return None
+
+    result.reply_text = _strip_dashes(result.reply_text)
 
     # Deterministic alias normalization before validation — merged across every state (not
     # just the current one) since a field can now legitimately be volunteered and extracted
