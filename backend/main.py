@@ -25,3 +25,10 @@ def on_startup():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/")
+def root():
+    # Some uptime probes / platform health checks hit "/" rather than "/health" -- without
+    # this it 404s, which some monitors treat as "service down" even though the app is fine.
+    return {"status": "ok"}

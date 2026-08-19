@@ -5,13 +5,6 @@ collected fields is fully auditable. See full blueprint Section 10.
 
 QUALIFIED_THRESHOLD = 50
 
-KNOWN_SERVICE_TYPES = {
-    "customer support",
-    "sales/lead ops",
-    "document processing",
-    "internal knowledge/ops",
-}
-
 
 def score_lead(collected_fields: dict) -> dict:
     breakdown = {}
