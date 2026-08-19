@@ -23,12 +23,16 @@ def on_startup():
 
 
 @app.get("/health")
+@app.head("/health")
 def health():
     return {"status": "ok"}
 
 
 @app.get("/")
+@app.head("/")
 def root():
-    # Some uptime probes / platform health checks hit "/" rather than "/health" -- without
-    # this it 404s, which some monitors treat as "service down" even though the app is fine.
+    # Some uptime probes / platform health checks hit "/" rather than "/health", and some use
+    # HEAD instead of GET -- confirmed live in the Render logs (HEAD / -> 405) once GET / was
+    # added but HEAD wasn't, since this FastAPI/Starlette version doesn't auto-add it. Explicit
+    # @app.head on both routes so no health-check verb/path combination ever 404s or 405s.
     return {"status": "ok"}
