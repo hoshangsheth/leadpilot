@@ -20,4 +20,3 @@ Output: {"reply_text": "Hi, thanks for checking out the site! I'm Hoshang's AI a
 """
 
 REQUIRED_FIELDS: list[str] = []
-ALLOWED_NEXT = ["greeting", "service_requirement"]

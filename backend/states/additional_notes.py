@@ -28,4 +28,3 @@ Output: {"reply_text": "Since payment is split by milestone, you'd only ever be 
 """
 
 REQUIRED_FIELDS: list[str] = []
-ALLOWED_NEXT = ["additional_notes", "qualification_decision"]

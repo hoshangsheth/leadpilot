@@ -12,4 +12,3 @@ Output: {"reply_text": "That's a totally reasonable range for this kind of build
 """
 
 REQUIRED_FIELDS = ["budget_range"]
-ALLOWED_NEXT = ["budget", "timeline"]

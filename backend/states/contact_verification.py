@@ -27,8 +27,6 @@ Output: {"reply_text": "Perfect, thank you. Before I let him know, is there anyt
 """
 
 REQUIRED_FIELDS = ["contact_name", "contact_preference"]
-ALLOWED_NEXT = ["contact_verification", "additional_notes"]
-
 # Defense-in-depth: the model sometimes extracts a natural-sounding key ("name") instead of
 # the exact required key ("contact_name") despite the prompt/few-shot specifying it. Rather
 # than trust the model to always comply, normalize known aliases deterministically before
@@ -41,6 +39,8 @@ ALIASES = {
     "phone": "contact_preference",
     "phone_number": "contact_preference",
     "email": "contact_preference",
+    "email_address": "contact_preference",
+    "contact_email": "contact_preference",
     "preferred_contact": "contact_preference",
 }
 

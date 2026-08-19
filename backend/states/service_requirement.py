@@ -17,4 +17,3 @@ Output: {"reply_text": "Appointment handling and repeat questions eating up fron
 """
 
 REQUIRED_FIELDS = ["service_type", "requirement_summary"]
-ALLOWED_NEXT = ["service_requirement", "business_context"]

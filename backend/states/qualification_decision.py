@@ -16,4 +16,3 @@ Output: {"reply_text": "Thanks so much, this sounds like exactly the kind of thi
 """
 
 REQUIRED_FIELDS: list[str] = []
-ALLOWED_NEXT = ["qualification_decision"]

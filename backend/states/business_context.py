@@ -13,4 +13,3 @@ Output: {"reply_text": "Perfect, that's helpful. Rough ballpark, do you have a b
 """
 
 REQUIRED_FIELDS = ["business_size"]
-ALLOWED_NEXT = ["business_context", "budget"]

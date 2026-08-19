@@ -12,4 +12,3 @@ Output: {"reply_text": "Good to know, getting that sorted quickly makes sense. O
 """
 
 REQUIRED_FIELDS = ["timeline_expectation"]
-ALLOWED_NEXT = ["timeline", "contact_verification"]

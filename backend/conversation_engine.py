@@ -18,6 +18,23 @@ MAX_MESSAGES = 50  # message cap, per blueprint Section 10 guardrails — enforc
 # extra exchange is trivial (a few paisa), so bias toward completing naturally over cutting
 # a nearly-finished conversation off.
 
+# Every field key name that exists anywhere in the funnel, not just the current state's own
+# REQUIRED_FIELDS. A real lead frequently volunteers information before the state that would
+# normally ask for it (e.g. describing budget while still answering the greeting) — if the
+# model is only ever told the current state's own field names, whatever it volunteers early
+# gets extracted under an invented key instead of the canonical one, and the funnel can never
+# credit that answer later. See validation/ai_output_rules.py's forward-walk validation,
+# which depends on exact key matches to know how far a conversation has genuinely progressed.
+ALL_FIELD_KEYS = list(dict.fromkeys(
+    [field for module in STATE_MODULES.values() for field in module.REQUIRED_FIELDS] + ["additional_notes"]
+))
+
+# Same idea for alias normalization — merged across every state, not just the current one,
+# so a field named off-script anywhere in the conversation still gets canonicalized.
+ALL_ALIASES: dict[str, str] = {}
+for _module in STATE_MODULES.values():
+    ALL_ALIASES.update(getattr(_module, "ALIASES", {}))
+
 
 def build_prompt(state_name: str, collected_fields: dict, history: list[str], user_text: str) -> tuple[str, str]:
     module = STATE_MODULES[state_name]
@@ -47,6 +64,11 @@ one this state requires. Two exceptions to this:
    an earlier state.
 Neither exception should ever replace or skip what this state actually requires.
 
+If the lead volunteers information belonging to a LATER state than the one you're in (e.g.
+mentions their budget while you're still on the greeting), extract it now under its correct
+canonical key from CANONICAL_FIELD_KEYS below rather than inventing a key or discarding it —
+you do not need to ask about it again once it's already been given.
+
 {module.INSTRUCTIONS}
 
 {company_knowledge_block()}
@@ -60,8 +82,10 @@ Example:
 
     user_prompt = f"""CURRENT_STATE: {state_name}
 FIELDS_COLLECTED: {collected_fields}
-FIELDS_MISSING: {missing}
-REQUIRED_FIELD_KEY_NAMES (use these EXACT keys in extracted_fields, no synonyms): {module.REQUIRED_FIELDS}
+FIELDS_MISSING (required for the CURRENT state): {missing}
+REQUIRED_FIELD_KEY_NAMES for the current state (use these EXACT keys, no synonyms): {module.REQUIRED_FIELDS}
+CANONICAL_FIELD_KEYS for the WHOLE funnel (use the exact matching key if the lead volunteers
+any of this early, even before you'd normally ask): {ALL_FIELD_KEYS}
 CONVERSATION_HISTORY: {history[-6:]}
 LATEST_USER_MESSAGE: {user_text}
 
@@ -78,14 +102,13 @@ async def process_message(state_name: str, collected_fields: dict, history: list
     if result is None:
         return None
 
-    # Deterministic alias normalization before validation — see states/contact_verification.py
-    # for why this exists.
-    module = STATE_MODULES[state_name]
-    aliases = getattr(module, "ALIASES", {})
-    if aliases:
-        result.extracted_fields = {
-            aliases.get(k, k): v for k, v in result.extracted_fields.items()
-        }
+    # Deterministic alias normalization before validation — merged across every state (not
+    # just the current one) since a field can now legitimately be volunteered and extracted
+    # before its "home" state is reached. See states/contact_verification.py for why this
+    # exists in the first place.
+    result.extracted_fields = {
+        ALL_ALIASES.get(k, k): v for k, v in result.extracted_fields.items()
+    }
 
     result = validate_turn_result(result, state_name, collected_fields)
 
