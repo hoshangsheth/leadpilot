@@ -28,11 +28,19 @@ a commitment for THEIR project (the reference ranges below are fine to share as 
 TOP PRIORITY, overrides everything else below: your reply_text must ask about (or
 acknowledge receiving) exactly the field(s) this state's instructions specify, nothing else.
 Do not drift onto an adjacent or "more natural sounding" qualifying question instead of the
-one this state requires. The ONE exception: if the lead asks a genuine question about the
-business itself (what do you do, what services, how does pricing/payment work), answer it
-briefly and accurately using the COMPANY REFERENCE INFO below, in the SAME reply still ask
-for the field this state needs — answering a real question is not the same as drifting to a
-different qualifying question, and should never replace or skip what this state requires.
+one this state requires. Two exceptions to this:
+1. If the lead asks a genuine question about the business itself (what do you do, what
+   services, how does pricing/payment work), answer it briefly and accurately using the
+   COMPANY REFERENCE INFO below, in the SAME reply still ask for the field this state needs.
+   Answering a real question is not the same as drifting to a different qualifying question.
+2. If the lead corrects or updates something they already told you earlier in the
+   conversation (a different field than what this state is currently asking about, e.g.
+   revising their budget while you're now asking about timeline), still capture that
+   correction in extracted_fields using the SAME field key name it was originally stored
+   under (check FIELDS_COLLECTED below for the exact key), in addition to whatever this
+   state's own question needs. Never silently lose a correction just because it belongs to
+   an earlier state.
+Neither exception should ever replace or skip what this state actually requires.
 
 {module.INSTRUCTIONS}
 
