@@ -21,6 +21,7 @@ def send_qualified_lead_email(wa_number: str, collected_fields: dict, score_resu
     name = html.escape(collected_fields.get("contact_name", "Unknown"))
     service_type = html.escape(collected_fields.get("service_type", "unclear"))
     requirement = html.escape(collected_fields.get("requirement_summary", "-"))
+    business_size = html.escape(collected_fields.get("business_size", "-"))
     budget = html.escape(collected_fields.get("budget_range", "not disclosed"))
     timeline = html.escape(collected_fields.get("timeline_expectation", "-"))
     preference = html.escape(collected_fields.get("contact_preference", "-"))
@@ -36,6 +37,7 @@ def send_qualified_lead_email(wa_number: str, collected_fields: dict, score_resu
         <li><strong>WhatsApp:</strong> {wa_number}</li>
         <li><strong>Service type:</strong> {service_type}</li>
         <li><strong>Requirement:</strong> {requirement}</li>
+        <li><strong>Business size:</strong> {business_size}</li>
         <li><strong>Budget:</strong> {budget}</li>
         <li><strong>Timeline:</strong> {timeline}</li>
         <li><strong>Contact preference:</strong> {preference}</li>
