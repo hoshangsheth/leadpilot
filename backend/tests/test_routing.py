@@ -12,6 +12,25 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from routing import detect_bypass, detect_source, BYPASS_REPLIES  # noqa: E402
+from conversation_engine import ensure_bot_disclosure  # noqa: E402
+
+
+class TestBotDisclosure:
+    """2026-08-22: a bare "hi" produced an opener with no bot disclosure at all — the model
+    traded it away against the general brevity rule. Whether someone knows they are talking
+    to a bot is not a style choice, so it is enforced in code."""
+
+    def test_missing_disclosure_is_injected(self):
+        reply = "Hi there! What process are you looking to automate?"
+        assert "ai assistant" in ensure_bot_disclosure(reply).lower()
+
+    def test_existing_disclosure_is_left_alone(self):
+        reply = "Hi there, I'm Hoshang's AI assistant. What do you want to automate?"
+        assert ensure_bot_disclosure(reply) == reply
+
+    def test_detection_is_case_insensitive(self):
+        reply = "Hi, I am Hoshang's ai assistant here to help."
+        assert ensure_bot_disclosure(reply) == reply
 
 
 class TestWarmContactBypass:

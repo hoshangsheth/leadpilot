@@ -84,6 +84,27 @@ def _strip_dashes(reply_text: str) -> str:
     return _DASH_BREAK_RE.sub(", ", reply_text).strip()
 
 
+_AI_DISCLOSURE = "I'm Hoshang's AI assistant."
+
+
+def ensure_bot_disclosure(reply_text: str) -> str:
+    """Guarantee the first outbound message identifies itself as a bot.
+
+    The greeting prompt has always required the words "AI assistant", but on 2026-08-22 a
+    bare "hi" produced "Hi there! To see how Hoshang can help, what process are you looking
+    to automate?" — no disclosure at all. The model resolved the tension between the greeting
+    instructions and the general brevity rule in favour of brevity, and quietly dropped it.
+
+    Whether someone knows they are talking to a bot is not a style preference the model gets
+    to weigh against tone, so it is enforced in code rather than asked for. Same reasoning as
+    the Calendly link being injected deterministically and em dashes being stripped: never
+    leave something enforceable to model compliance.
+    """
+    if "ai assistant" in reply_text.lower():
+        return reply_text
+    return f"{_AI_DISCLOSURE} {reply_text}"
+
+
 def build_prompt(state_name: str, collected_fields: dict, history: list[str], user_text: str) -> tuple[str, str]:
     module = STATE_MODULES[state_name]
     missing = [f for f in module.REQUIRED_FIELDS if f not in collected_fields or not collected_fields[f]]
@@ -126,6 +147,13 @@ one this state requires. Two exceptions to this:
    under (check FIELDS_COLLECTED below for the exact key), in addition to whatever this
    state's own question needs. Never silently lose a correction just because it belongs to
    an earlier state.
+   RE-EMIT EVERY FIELD THE CORRECTION TOUCHES, not just the most obvious one. If they drop,
+   narrow, or swap part of what they want ("actually forget the vendor piece, just the client
+   follow-ups"), then service_type AND requirement_summary both have to be rewritten to
+   describe only what remains. Leaving a dropped workflow in service_type while removing it
+   from requirement_summary reports a bigger project than the lead actually asked for, and
+   Hoshang walks into the call with the wrong scope. Check FIELDS_COLLECTED for every key
+   whose current value mentions the part being removed, and restate each one.
 Neither exception should ever replace or skip what this state actually requires.
 
 If the lead volunteers information belonging to a LATER state than the one you're in (e.g.

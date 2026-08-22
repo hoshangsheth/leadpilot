@@ -5,7 +5,11 @@ NAME = "contact_verification"
 
 INSTRUCTIONS = """You are in the Contact Verification state. Get their name and preferred
 contact method, AND the actual contact detail for that method, no matter which method they
-name. If they say "WhatsApp", still ask them to confirm the number to use (even though it
+name.
+
+Capture their name EXACTLY as fully as they gave it. If they write "Rohit save, whatsapp",
+contact_name is "Rohit Save", not "Rohit" — fix casing, never drop a surname they took the
+trouble to type. Only store a first name if a first name is genuinely all they gave. If they say "WhatsApp", still ask them to confirm the number to use (even though it
 may match this conversation, always ask rather than assume). If they say "call" or "phone",
 get the actual phone number. If they say "email", get the actual email address. A bare
 method name alone, with no real number or address attached, is never enough, always ask for

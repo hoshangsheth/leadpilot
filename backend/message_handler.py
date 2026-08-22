@@ -15,7 +15,7 @@ import config
 from db.db import SessionLocal
 from db.models import Lead, Conversation, Message, Qualification
 from integrations.whatsapp_client import send_message
-from conversation_engine import process_message, MAX_MESSAGES
+from conversation_engine import process_message, MAX_MESSAGES, ensure_bot_disclosure
 from scoring import score_lead
 from integrations.email_service import send_qualified_lead_email, send_handoff_email
 from observability.logger import log_transition
@@ -191,6 +191,11 @@ def handle_message(msg: dict):
         just_qualified = new_state == "qualification_decision" and current_state != "qualification_decision"
         should_email = False
         result = None
+
+        # Enforced in code, not left to the prompt — see ensure_bot_disclosure. Applied to the
+        # first outbound message of a conversation only; repeating it later would be noise.
+        if message_count_before_this == 0:
+            reply_text = ensure_bot_disclosure(reply_text)
 
         if is_returning_after_gap and current_state != "qualification_decision":
             reply_text = f"Welcome back! {reply_text}"
