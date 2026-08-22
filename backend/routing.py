@@ -2,7 +2,7 @@
 qualification funnel at all, and where it came from.
 
 Everything here runs BEFORE any Gemini call, and none of it asks the model for something that
-can be computed. Two jobs:
+can be computed. Three jobs:
 
 1. Warm contacts and human requests bypass the bot entirely. A referral or a friend of
    Hoshang's must never be interrogated for their budget by a robot — they are the highest
@@ -10,6 +10,12 @@ can be computed. Two jobs:
 2. Attribution is read off the first message rather than asked for. The website sends a
    different pre-filled message from each entry point (see lib/whatsapp.js on the site), so
    the source is already sitting in the text.
+3. "Is this a bot?" gets answered even after the funnel has closed. Once a conversation
+   reaches qualification_decision, human_takeover silences the bot entirely — correct for
+   ordinary chatter, wrong for a direct question that deserves a truthful answer. On
+   2026-08-22 a real, already-qualified lead asked "btw is this a bot?" twice after closing
+   out and got total silence both times. This is answered deterministically (no Gemini call,
+   no reopening the funnel) precisely because it must work even when nothing else does.
 """
 
 import re
@@ -64,6 +70,34 @@ def detect_bypass(text: str, message_count: int) -> str | None:
     if message_count <= WARM_DETECTION_MESSAGE_LIMIT and _WARM_RE.search(text):
         return "warm"
     return None
+
+
+# --- "Is this a bot?" after the funnel has closed ---------------------------------------
+#
+# Deliberately narrow to genuine identity questions, not any mention of the word "bot"
+# ("can you build me a chatbot" must NOT match — that is a real requirement, not a question
+# about what they're talking to).
+_IDENTITY_QUESTION_PATTERNS = (
+    r"\bis (this|it|the number) a bot\b",
+    r"\bare you a bot\b",
+    r"\bare you (an )?ai\b",
+    r"\bare you (a )?real (person|human)\b",
+    r"\bare you human\b",
+    r"\bam i (talking|chatting|speaking) (to|with) a (bot|real person|human|person)\b",
+    r"\bis this automated\b",
+    r"\bis this a real person\b",
+)
+_IDENTITY_QUESTION_RE = re.compile("|".join(_IDENTITY_QUESTION_PATTERNS), re.I)
+
+
+def is_identity_question(text: str) -> bool:
+    return bool(text) and bool(_IDENTITY_QUESTION_RE.search(text))
+
+
+IDENTITY_QUESTION_REPLY = (
+    "Yes, I'm Hoshang's AI assistant, not Hoshang himself! He has everything from our "
+    "conversation and will follow up with you personally."
+)
 
 
 BYPASS_REPLIES = {

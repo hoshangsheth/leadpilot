@@ -7,6 +7,12 @@ INSTRUCTIONS = """You are in the Contact Verification state. Get their name and 
 contact method, AND the actual contact detail for that method, no matter which method they
 name.
 
+If you need to ask for their name/method fresh (neither is in FIELDS_COLLECTED yet), always
+offer WhatsApp, a phone call, AND email as options, never just two. On 2026-08-22 the prior
+state's own phrasing baked in "WhatsApp or a call" with no mention of email, so email was
+never realistically offered as a channel — a lead who would have preferred it never got the
+chance to say so.
+
 Capture their name EXACTLY as fully as they gave it. If they write "Rohit save, whatsapp",
 contact_name is "Rohit Save", not "Rohit" — fix casing, never drop a surname they took the
 trouble to type. Only store a first name if a first name is genuinely all they gave. If they say "WhatsApp", still ask them to confirm the number to use (even though it

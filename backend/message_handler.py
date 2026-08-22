@@ -19,7 +19,7 @@ from conversation_engine import process_message, MAX_MESSAGES, ensure_bot_disclo
 from scoring import score_lead
 from integrations.email_service import send_lead_notification_email, send_handoff_email
 from observability.logger import log_transition
-from routing import detect_bypass, detect_source, BYPASS_REPLIES
+from routing import detect_bypass, detect_source, BYPASS_REPLIES, is_identity_question, IDENTITY_QUESTION_REPLY
 
 logger = logging.getLogger("leadpilot.webhook")
 
@@ -100,11 +100,32 @@ def handle_message(msg: dict):
             db.flush()
 
         if lead.human_takeover:
-            logger.info("Lead %s has human_takeover set — bot stays silent", lead.id)
+            # A direct "is this a bot?" is the one thing that still gets answered here.
+            # Everything else genuinely should stay silent — no Gemini call, no reopening a
+            # closed funnel — but a truthful yes/no about what they're talking to costs
+            # nothing and shouldn't require Hoshang to be online. On 2026-08-22 a real,
+            # already-qualified lead asked this twice and got silence both times.
+            reply_text = IDENTITY_QUESTION_REPLY if is_identity_question(body_text) else None
+            logger.info(
+                "Lead %s has human_takeover set — %s",
+                lead.id, "answering identity question" if reply_text else "bot stays silent",
+            )
             db.add(Message(
                 conversation_id=conversation.id, wa_message_id=wa_message_id, direction="in", text=body_text
             ))
+            if reply_text:
+                db.add(Message(
+                    conversation_id=conversation.id,
+                    wa_message_id=f"{wa_message_id}-reply",
+                    direction="out",
+                    text=reply_text,
+                ))
             db.commit()
+            if reply_text:
+                # This message just arrived, so it's trivially inside the 24h session window —
+                # `now` isn't computed yet at this point in the function (that happens further
+                # down, for the normal-flow path), so it's derived fresh here instead.
+                _send_reply(wa_number, reply_text, datetime.now(timezone.utc))
             return
 
         # Capture the PREVIOUS inbound time before overwriting — used for the welcome-back

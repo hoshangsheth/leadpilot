@@ -11,8 +11,32 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from routing import detect_bypass, detect_source, BYPASS_REPLIES  # noqa: E402
+from routing import detect_bypass, detect_source, BYPASS_REPLIES, is_identity_question  # noqa: E402
 from conversation_engine import ensure_bot_disclosure  # noqa: E402
+
+
+class TestIdentityQuestion:
+    """2026-08-22: a real, already-qualified lead (Kunal Mehta) asked "btw is this a bot?"
+    twice after the funnel closed and got total silence both times — human_takeover silences
+    everything, with no exception for a direct question that deserves a truthful answer."""
+
+    def test_genuine_identity_questions_match(self):
+        for message in [
+            "Btw is this a bot?", "are you a bot", "Are you AI?", "is this automated",
+            "am I talking to a real person", "are you human", "is this a real person",
+        ]:
+            assert is_identity_question(message), message
+
+    def test_real_requirements_mentioning_bots_do_not_match(self):
+        """The near-miss that matters: wanting a bot built is a requirement, not a question
+        about what they're currently talking to."""
+        for message in [
+            "Can you build me a chatbot for customer support",
+            "I want an AI bot for my WhatsApp",
+            "is this a good idea for automation",
+            "are you able to build this in 2 weeks",
+        ]:
+            assert not is_identity_question(message), message
 
 
 class TestBotDisclosure:
