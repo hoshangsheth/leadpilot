@@ -53,6 +53,26 @@ def _scope_banner_html(scope_flag: str) -> str:
     )
 
 
+def _blockers_html(blockers: list[str]) -> str:
+    """Hard commercial mismatches, rendered above the score.
+
+    A high score with an unaffordable budget is actively misleading — the 2026-08-22 CA-firm
+    lead scored 87/100 while capped at ₹15,000 against a ₹35,000 floor and wanting delivery in
+    2 weeks against a 5-12 week build. Perfect fit on pain and scope, impossible on terms.
+    Those facts decide whether the call is worth booking, so they are stated outright instead
+    of being averaged into a number.
+    """
+    if not blockers:
+        return ""
+    items = "".join(f"<li>{html.escape(b)}</li>" for b in blockers)
+    return (
+        '<div style="margin:0 0 16px;padding:12px 14px;border-left:4px solid #b3261e;'
+        'background:#fdecea;color:#b3261e;">'
+        '<strong style="display:block;margin-bottom:6px;">BLOCKERS — resolve before scoping</strong>'
+        f'<ul style="margin:0;padding-left:18px;">{items}</ul></div>'
+    )
+
+
 def send_qualified_lead_email(wa_number: str, collected_fields: dict, score_result: dict) -> None:
     # Every one of these fields ultimately comes from free text a stranger typed on WhatsApp,
     # then passed through the model into extracted_fields. Escaping before HTML interpolation
@@ -69,16 +89,22 @@ def send_qualified_lead_email(wa_number: str, collected_fields: dict, score_resu
     wa_number = html.escape(wa_number)
 
     scope_flag = score_result.get("scope_flag", "unknown")
+    blockers = score_result.get("blockers", [])
     # Prefixed into the subject line too, so a mismatch is visible from the inbox list
-    # without opening the mail.
-    subject_prefix = {
-        "out_of_scope": "[OUT OF SCOPE] ",
-        "partial": "[PARTIAL FIT] ",
-    }.get(scope_flag, "")
+    # without opening the mail. A blocker outranks the scope label: an in-scope lead who
+    # cannot pay still needs flagging before the call gets booked.
+    if blockers:
+        subject_prefix = "[BLOCKERS] "
+    else:
+        subject_prefix = {
+            "out_of_scope": "[OUT OF SCOPE] ",
+            "partial": "[PARTIAL FIT] ",
+        }.get(scope_flag, "")
 
     subject = f"{subject_prefix}New Qualified Lead: {name} — {service_type}"
     html_body = f"""
     <h2>New Qualified Lead</h2>
+    {_blockers_html(blockers)}
     {_scope_banner_html(scope_flag)}
     <p><strong>Score:</strong> {score_result['score']}/100</p>
     <ul>

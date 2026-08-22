@@ -74,9 +74,13 @@ class TestScopeScoring:
         }
         assert scores["in_scope"] > scores["partial"] > scores["unclear"] > scores["out_of_scope"]
 
-    def test_absent_scope_fit_is_neutral_not_zero(self):
-        """The field is optional by design — a forgotten key must not bury a real lead."""
-        result = scoring.score_lead({"service_type": "customer support", "requirement_summary": "x"})
+    def test_absent_and_underivable_scope_fit_is_neutral_not_zero(self):
+        """The field is optional by design — a forgotten key must not bury a real lead.
+
+        Uses a service_type that cannot be derived (see TestScopeDerivedFromServiceType for
+        the derivable case), so this exercises the genuine last-resort fallback.
+        """
+        result = scoring.score_lead({"service_type": "Other / Unsure", "requirement_summary": "x"})
         assert result["breakdown"]["scope_fit"] == 12
         assert result["scope_flag"] == "unknown"
 
@@ -87,9 +91,12 @@ class TestBudgetAnchoring:
         self_stated = scoring.score_lead({"budget_range": "1.2 lakhs"})["breakdown"]["budget_disclosed"]
         assert anchored < self_stated
 
-    def test_no_budget_scores_zero(self):
+    def test_undisclosed_budget_is_neither_rewarded_nor_treated_as_unaffordable(self):
+        """Silence scores low but above a known-unaffordable number — a lead who won't say
+        may still have money, whereas ₹15k against a ₹35k floor definitively does not."""
         for value in ("", "not disclosed", "unknown"):
-            assert scoring.score_lead({"budget_range": value})["breakdown"]["budget_disclosed"] == 0
+            points = scoring.score_lead({"budget_range": value})["breakdown"]["budget_disclosed"]
+            assert points == 5, value
 
 
 class TestTimelineUrgency:
@@ -104,6 +111,87 @@ class TestTimelineUrgency:
 
     def test_absent_timeline_scores_zero(self):
         assert scoring._timeline_points({}) == 0
+
+
+class TestScopeDerivedFromServiceType:
+    """2026-08-22: a textbook Document Processing lead (200+ invoices into Tally) came back
+    "unclassified" because an earlier drift meant service_requirement finished its turn
+    without scope_fit, and the funnel never revisits a passed state. service_type already
+    held the answer."""
+
+    def test_canonical_service_type_derives_in_scope(self):
+        for service_type in ("Document Processing", "customer support",
+                             "sales/lead ops", "Internal Knowledge & Ops"):
+            result = scoring.score_lead({
+                "service_type": service_type, "requirement_summary": "x",
+            })
+            assert result["scope_flag"] == "in_scope", service_type
+
+    def test_model_emitted_scope_fit_wins_over_derivation(self):
+        """An explicit out_of_scope must not be overridden by a tidy-looking service_type."""
+        result = scoring.score_lead({
+            "service_type": "document processing", "scope_fit": "Out of scope",
+        })
+        assert result["scope_flag"] == "out_of_scope"
+
+    def test_non_canonical_service_type_stays_unknown(self):
+        for service_type in ("Other / Unsure", "unclear", "3D/CAD rendering"):
+            result = scoring.score_lead({"service_type": service_type})
+            assert result["scope_flag"] == "unknown", service_type
+
+
+class TestBudgetViability:
+    """Stating a budget used to score full marks regardless of whether it could fund a build."""
+
+    def test_parses_indian_formats(self):
+        assert scoring.parse_budget_inr("15k INR max") == 15_000
+        assert scoring.parse_budget_inr("1.2 lakhs") == 120_000
+        assert scoring.parse_budget_inr("50-60k") == 60_000
+        assert scoring.parse_budget_inr("not disclosed") is None
+
+    def test_below_floor_scores_worse_than_saying_nothing(self):
+        """₹15k cannot fund a ₹35k+ build; silence might still hide real money."""
+        below = scoring.score_lead({"budget_range": "15k max"})["breakdown"]["budget_disclosed"]
+        silent = scoring.score_lead({"budget_range": "not disclosed"})["breakdown"]["budget_disclosed"]
+        viable = scoring.score_lead({"budget_range": "60k"})["breakdown"]["budget_disclosed"]
+        assert below < silent < viable
+
+    def test_below_floor_raises_a_blocker(self):
+        blockers = scoring.score_lead({"budget_range": "15k INR max"})["blockers"]
+        assert any("below the" in b for b in blockers)
+
+
+class TestTimelineFeasibility:
+    def test_parses_durations_to_weeks(self):
+        assert scoring.parse_timeline_weeks("urgent, within 2 weeks") == 2.0
+        assert scoring.parse_timeline_weeks("ASAP") == 1.0
+        assert scoring.parse_timeline_weeks("1-2 months") > 8
+        assert scoring.parse_timeline_weeks("flexible") is None
+
+    def test_deadline_shorter_than_min_build_raises_a_blocker(self):
+        blockers = scoring.score_lead({"timeline_expectation": "urgent, within 2 weeks"})["blockers"]
+        assert any("typical build" in b for b in blockers)
+
+    def test_realistic_deadline_raises_no_blocker(self):
+        assert scoring.score_lead({"timeline_expectation": "2 months"})["blockers"] == []
+
+
+class TestTheCAFirmLead:
+    """The 2026-08-22 lead that scored 87/100 while being unable to pay or wait."""
+
+    def test_perfect_fit_impossible_terms_is_flagged_not_averaged(self):
+        result = scoring.score_lead({
+            "service_type": "Document Processing",
+            "requirement_summary": "200+ monthly vendor invoices into Tally",
+            "business_size": "3 people",
+            "budget_range": "15k INR max",
+            "timeline_expectation": "urgent, within 2 weeks",
+            "contact_name": "Meera Iyer",
+            "contact_preference": "email, meera@example.com",
+        })
+        assert result["scope_flag"] == "in_scope", "genuinely a document-processing lead"
+        assert result["breakdown"]["budget_disclosed"] == 0, "₹15k cannot fund a ₹35k+ build"
+        assert len(result["blockers"]) == 2, "budget AND timeline are both dealbreakers"
 
 
 class TestEmailBanner:
