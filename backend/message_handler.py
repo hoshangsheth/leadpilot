@@ -27,6 +27,12 @@ WELCOME_BACK_GAP_HOURS = 6
 MAX_TEXT_LENGTH = 2000  # a legitimate WhatsApp reply is nowhere near this; bounds worst-case
 # Gemini token cost per message and blocks unbounded text as a cheap abuse/DoS-via-cost vector.
 
+NOTES_RETRY_LIMIT = 3  # max times "anything else?" gets re-asked before a deterministic close.
+# _notes_retry_count is internal bookkeeping, not a real lead fact — deliberately never added
+# to conversation_engine.ALL_FIELD_KEYS (Gemini is never told this key exists and can't extract
+# or corrupt it) and never read by email_service (it isn't in that file's field allowlist), so
+# it can't leak into anything user- or Hoshang-facing by accident.
+
 
 def process_payload(payload: dict):
     """Runs after the 200 ack — Meta's retry behavior only cares about the ack (Section 9a,
@@ -187,12 +193,43 @@ def handle_message(msg: dict):
         # Message cap — bounds worst-case Gemini spend per lead and forces a clean handoff
         # instead of an endless (and costly) back-and-forth. See blueprint Section 10.
         if message_count >= MAX_MESSAGES and current_state != "qualification_decision":
-            reply_text, result = _apply_force_handoff(db, conversation, collected_fields)
+            reply_text, result = _apply_force_handoff(
+                db, conversation, collected_fields,
+                reply_text=(
+                    "Thanks so much for the detail so far. I want to make sure Hoshang picks this up "
+                    "directly rather than keep you going back and forth here. He'll follow up with you shortly."
+                ),
+                incomplete_reason="message_cap",
+            )
             db.commit()
             log_transition(lead_id, current_state, "qualification_decision", None, "message_cap_forced")
             # Notified regardless of qualified — see send_lead_notification_email's docstring.
             # This is the message-cap path specifically: a lead cut off one exchange short of
             # finishing must not vanish any more than one who finishes and scores low.
+            send_lead_notification_email(wa_number, collected_fields, result)
+            _send_reply(wa_number, reply_text, now)
+            return
+
+        # Additional Notes retry cap — this is the one state whose own instructions allow it
+        # to loop indefinitely (re-asking "anything else?" for as long as the lead keeps
+        # asking questions instead of closing out). Bounded only by the global MAX_MESSAGES
+        # cap above, that's a very loose limit for one specific state, and every extra round
+        # is a real Gemini cost for a conversation that has, in practice, already collected
+        # everything scoring needs. After NOTES_RETRY_LIMIT rounds without a clean close-out,
+        # close deterministically instead of asking a Nth time.
+        notes_retries = int(collected_fields.get("_notes_retry_count", 0) or 0)
+        if current_state == "additional_notes" and notes_retries >= NOTES_RETRY_LIMIT:
+            reply_text, result = _apply_force_handoff(
+                db, conversation, collected_fields,
+                reply_text=(
+                    "I want to make sure this doesn't turn into an endless back-and-forth, so "
+                    "I'll close things out here. Hoshang has everything from our chat and will "
+                    "follow up with you personally, this conversation is now closed on my end."
+                ),
+                incomplete_reason="notes_retry_cap",
+            )
+            db.commit()
+            log_transition(lead_id, current_state, "qualification_decision", None, "notes_retry_cap_forced")
             send_lead_notification_email(wa_number, collected_fields, result)
             _send_reply(wa_number, reply_text, now)
             return
@@ -214,6 +251,12 @@ def handle_message(msg: dict):
         just_qualified = new_state == "qualification_decision" and current_state != "qualification_decision"
         should_email = False
         result = None
+
+        # Counts each round the lead spends in additional_notes without closing out yet — see
+        # NOTES_RETRY_LIMIT above. Only increments while genuinely looping in this one state;
+        # anywhere else the key stays absent/zero and is a no-op.
+        if current_state == "additional_notes" and new_state == "additional_notes":
+            updated_fields["_notes_retry_count"] = notes_retries + 1
 
         # Enforced in code, not left to the prompt — see ensure_bot_disclosure. Applied to the
         # first outbound message of a conversation only; repeating it later would be noise.
@@ -295,25 +338,27 @@ def _upsert_qualification(db, conversation_id: int, result: dict):
         )
 
 
-def _apply_force_handoff(db, conversation: Conversation, collected_fields: dict) -> tuple[str, dict]:
-    """Message cap hit — no more Gemini calls for this conversation. Deterministic reply,
-    force to qualification_decision with an 'incomplete' flag, hand off to Hoshang directly.
+def _apply_force_handoff(
+    db, conversation: Conversation, collected_fields: dict, reply_text: str, incomplete_reason: str,
+) -> tuple[str, dict]:
+    """A deterministic, non-Gemini close-out — used by both the global message cap and the
+    additional_notes retry cap. Force to qualification_decision, hand off to Hoshang directly.
     See full blueprint Section 10/11 — forced handoff with partial data flagged incomplete.
 
     Still qualifies (and the caller still emails) if the fields actually collected genuinely
-    score as qualified — "incomplete" only means additional_notes wasn't reached, it doesn't
-    mean the real scoring fields are missing. A lead who answered everything real and just got
-    cut off one exchange short still deserves the notification and the link.
+    score as qualified — "incomplete" only means additional_notes wasn't reached cleanly, it
+    doesn't mean the real scoring fields are missing. Every scoring-relevant field (service
+    type, scope, budget, timeline, contact) is collected in the states BEFORE additional_notes,
+    which itself carries zero scoring weight — so by the time either cap fires, score_lead()
+    already has everything it needs to be accurate. A lead who answered everything real and
+    just got cut off — by hitting the message cap, or by looping past the notes retry limit —
+    still deserves the same notification and, if they'd have qualified anyway, the same link.
 
     Mutates `conversation` in place on the caller's already-open session/transaction rather
     than opening its own — this used to run in a separate SessionLocal(), which meant it
     wasn't covered by the same advisory lock as the rest of this turn's processing.
     """
-    reply_text = (
-        "Thanks so much for the detail so far. I want to make sure Hoshang picks this up "
-        "directly rather than keep you going back and forth here. He'll follow up with you shortly."
-    )
-    collected_fields = {**collected_fields, "incomplete": "true"}
+    collected_fields = {**collected_fields, "incomplete": incomplete_reason}
     result = score_lead(collected_fields)
 
     if result["qualified"]:
@@ -331,7 +376,7 @@ def _apply_force_handoff(db, conversation: Conversation, collected_fields: dict)
     ))
     _upsert_qualification(db, conversation.id, result)
     logger.warning(
-        "Conversation %s hit message cap (%d), forced handoff — score=%s qualified=%s",
-        conversation.id, MAX_MESSAGES, result["score"], result["qualified"],
+        "Conversation %s forced handoff (%s) — score=%s qualified=%s",
+        conversation.id, incomplete_reason, result["score"], result["qualified"],
     )
     return reply_text, result
