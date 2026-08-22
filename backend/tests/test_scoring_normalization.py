@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import scoring  # noqa: E402
 from conversation_engine import normalize_field_values  # noqa: E402
-from integrations.email_service import _scope_banner_html  # noqa: E402
+from integrations.email_service import _scope_banner_html, send_lead_notification_email  # noqa: E402
 
 
 class TestScopeValueNormalization:
@@ -192,6 +192,54 @@ class TestTheCAFirmLead:
         assert result["scope_flag"] == "in_scope", "genuinely a document-processing lead"
         assert result["breakdown"]["budget_disclosed"] == 0, "₹15k cannot fund a ₹35k+ build"
         assert len(result["blockers"]) == 2, "budget AND timeline are both dealbreakers"
+
+
+class TestUnqualifiedLeadsAreNotified:
+    """A real prospect (Sneha Thakkar, 2026-08-22) scored 35/100, and the notification email
+    was gated on qualified=True, so Hoshang received nothing. The bot still told her "that
+    gives him everything he needs" — a promise that was false, because the email that would
+    have made it true never fired. She messaged again 17 minutes later asking when she'd hear
+    back, into a conversation nobody but her could see.
+
+    The threshold should decide whether a lead gets a self-service Calendly link, not whether
+    Hoshang is told a real person reached out. These tests exist so an unqualified lead going
+    silent can never again be an unintentional consequence of the qualified/not branch.
+    """
+
+    def test_the_exact_lead_that_went_unnotified(self):
+        from unittest.mock import patch
+
+        sneha_fields = {
+            "service_type": "unclear", "requirement_summary": "looking to build a website",
+            "scope_fit": "out_of_scope", "business_size": "12 people",
+            "budget_range": "not disclosed", "timeline_expectation": "within a month",
+            "contact_name": "Sneha Thakkar", "contact_preference": "Call / WhatsApp, same number",
+        }
+        result = scoring.score_lead(sneha_fields)
+        assert not result["qualified"], "sanity check: this must reproduce the low score"
+
+        with patch("integrations.email_service.resend.Emails.send") as mock:
+            send_lead_notification_email("918850037690", sneha_fields, result)
+            assert mock.called, "an unqualified lead must still generate a notification"
+            subject = mock.call_args[0][0]["subject"]
+            assert "UNQUALIFIED" in subject
+
+    def test_qualified_lead_email_is_unaffected(self):
+        from unittest.mock import patch
+
+        good_fields = {
+            "service_type": "customer support", "requirement_summary": "x",
+            "budget_range": "70k", "timeline_expectation": "2 months",
+            "contact_name": "P", "contact_preference": "p@q.com", "scope_fit": "in_scope",
+        }
+        result = scoring.score_lead(good_fields)
+        assert result["qualified"]
+
+        with patch("integrations.email_service.resend.Emails.send") as mock:
+            send_lead_notification_email("919999999999", good_fields, result)
+            subject = mock.call_args[0][0]["subject"]
+            assert "UNQUALIFIED" not in subject
+            assert "New Qualified Lead" in subject
 
 
 class TestEmailBanner:

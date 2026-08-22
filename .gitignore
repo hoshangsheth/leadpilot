@@ -7,3 +7,9 @@ venv/
 n8n_data/
 .claude/
 System Blueprint & Documents/
+
+# Personal contact lists used to seed human-only leads (seed_known_contacts.py).
+# Real phone numbers of real people — never commit these.
+contacts.txt
+contacts*.txt
+*.vcf

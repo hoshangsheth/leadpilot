@@ -112,7 +112,23 @@ def send_handoff_email(wa_number: str, reason: str, first_message: str, source: 
         logger.exception("Failed to send handoff email for wa_number=%s", wa_number)
 
 
-def send_qualified_lead_email(wa_number: str, collected_fields: dict, score_result: dict) -> None:
+def send_lead_notification_email(wa_number: str, collected_fields: dict, score_result: dict) -> None:
+    """Fires for every conversation that reaches qualification_decision — qualified or not.
+
+    Until 2026-08-22 this only fired when score_result["qualified"] was True. A real lead
+    (Sneha Thakkar, a Mumbai dryfruit store wanting a website) scored 35/100 — under scope,
+    no budget given — and the bot's closing line "Perfect, that gives him everything he
+    needs" went out as normal. It was a lie: Hoshang received nothing, ever, because the
+    email was gated on the same threshold as the Calendly link. She messaged again 17
+    minutes later asking when she'd hear back, into a conversation nobody but her had any
+    visibility into.
+
+    The threshold should decide whether a lead gets a Calendly link and self-service
+    booking, not whether Hoshang finds out someone reached out. Those are different
+    decisions.  This function now sends unconditionally; the qualified/not distinction is
+    reflected on the email itself (subject prefix, banner, and whether the reply included a
+    booking link) so he can act on judgment rather than being kept in the dark.
+    """
     # Every one of these fields ultimately comes from free text a stranger typed on WhatsApp,
     # then passed through the model into extracted_fields. Escaping before HTML interpolation
     # is required, not optional — an unescaped field is a real HTML/script injection vector
@@ -130,10 +146,15 @@ def send_qualified_lead_email(wa_number: str, collected_fields: dict, score_resu
 
     scope_flag = score_result.get("scope_flag", "unknown")
     blockers = score_result.get("blockers", [])
-    # Prefixed into the subject line too, so a mismatch is visible from the inbox list
-    # without opening the mail. A blocker outranks the scope label: an in-scope lead who
-    # cannot pay still needs flagging before the call gets booked.
-    if blockers:
+    qualified = score_result.get("qualified", False)
+
+    # Prefixed into the subject line too, so status is visible from the inbox list without
+    # opening the mail. Unqualified outranks everything else — that is the fact most likely
+    # to change what Hoshang does with this email, since it means no Calendly link went out
+    # and nothing happens next unless he acts on it himself.
+    if not qualified:
+        subject_prefix = "[UNQUALIFIED — NO AUTO FOLLOW-UP] "
+    elif blockers:
         subject_prefix = "[BLOCKERS] "
     else:
         subject_prefix = {
@@ -141,9 +162,21 @@ def send_qualified_lead_email(wa_number: str, collected_fields: dict, score_resu
             "partial": "[PARTIAL FIT] ",
         }.get(scope_flag, "")
 
-    subject = f"{subject_prefix}New Qualified Lead: {name} — {service_type}"
+    lead_label = "New Qualified Lead" if qualified else "Lead Did Not Qualify"
+    subject = f"{subject_prefix}{lead_label}: {name} — {service_type}"
+
+    unqualified_banner = "" if qualified else (
+        '<p style="margin:0 0 16px;padding:12px 14px;border-left:4px solid #57606a;'
+        'background:#f3f4f6;color:#40464d;font-weight:600;">'
+        f'Scored {score_result["score"]}/100 — below the qualifying threshold. '
+        "No Calendly link was sent and the bot will not follow up further; the lead was "
+        'still told "that gives him everything he needs," so if you want to reply, '
+        "it has to be you, and they are currently waiting on it.</p>"
+    )
+
     html_body = f"""
-    <h2>New Qualified Lead</h2>
+    <h2>{lead_label}</h2>
+    {unqualified_banner}
     {_blockers_html(blockers)}
     {_scope_banner_html(scope_flag)}
     <p><strong>Score:</strong> {score_result['score']}/100</p>
@@ -170,4 +203,4 @@ def send_qualified_lead_email(wa_number: str, collected_fields: dict, score_resu
             "html": html_body,
         })
     except Exception:
-        logger.exception("Failed to send qualified-lead email for wa_number=%s", wa_number)
+        logger.exception("Failed to send lead-notification email for wa_number=%s", wa_number)

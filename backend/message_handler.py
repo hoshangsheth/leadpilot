@@ -17,7 +17,7 @@ from db.models import Lead, Conversation, Message, Qualification
 from integrations.whatsapp_client import send_message
 from conversation_engine import process_message, MAX_MESSAGES, ensure_bot_disclosure
 from scoring import score_lead
-from integrations.email_service import send_qualified_lead_email, send_handoff_email
+from integrations.email_service import send_lead_notification_email, send_handoff_email
 from observability.logger import log_transition
 from routing import detect_bypass, detect_source, BYPASS_REPLIES
 
@@ -169,8 +169,10 @@ def handle_message(msg: dict):
             reply_text, result = _apply_force_handoff(db, conversation, collected_fields)
             db.commit()
             log_transition(lead_id, current_state, "qualification_decision", None, "message_cap_forced")
-            if result["qualified"]:
-                send_qualified_lead_email(wa_number, collected_fields, result)
+            # Notified regardless of qualified — see send_lead_notification_email's docstring.
+            # This is the message-cap path specifically: a lead cut off one exchange short of
+            # finishing must not vanish any more than one who finishes and scores low.
+            send_lead_notification_email(wa_number, collected_fields, result)
             _send_reply(wa_number, reply_text, now)
             return
 
@@ -213,11 +215,16 @@ def handle_message(msg: dict):
             # The conversational funnel is done either way — stop future auto-replies so a
             # disqualified lead messaging again doesn't trigger further (paid) Gemini calls.
             conversation.lead.human_takeover = True
+            # Notified regardless of qualified. Until 2026-08-22 this was gated on
+            # result["qualified"], so an unqualified lead was told "that gives him everything
+            # he needs" while Hoshang received nothing — see send_lead_notification_email's
+            # docstring for the real lead this happened to. The threshold decides whether a
+            # lead gets a self-service Calendly link, not whether Hoshang finds out at all.
+            should_email = True
             if result["qualified"]:
                 # Calendly link is injected deterministically, never model-generated —
                 # a hallucinated/malformed URL in a real lead's WhatsApp is not acceptable.
                 reply_text = f"{reply_text}\n\nFeel free to grab a slot directly: {config.CALENDLY_LINK}"
-                should_email = True
 
         db.add(Message(
             conversation_id=conversation.id,
@@ -230,7 +237,7 @@ def handle_message(msg: dict):
         db.close()
 
     if should_email:
-        send_qualified_lead_email(wa_number, updated_fields, result)
+        send_lead_notification_email(wa_number, updated_fields, result)
 
     send_outcome = _send_reply(wa_number, reply_text, now)
     log_transition(lead_id, current_state, new_state, gemini_ms, send_outcome)
