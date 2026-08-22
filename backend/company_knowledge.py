@@ -86,6 +86,20 @@ IN_SCOPE_SIGNALS = [
     "connecting existing systems together (CRM, ERP, WhatsApp, email, Sheets, Slack)",
 ]
 
+# Real work Hoshang does and sells, but not one of the four flagship AI-automation
+# applications above (see hoshangsheth.com/work — VK Bags is a delivered website, not an
+# automation system). A lead asking for one of these must NOT be scored or spoken to as
+# out-of-scope; on 2026-08-22 a real prospect asking for a website was told it "sits outside
+# the automation workflows Hoshang usually builds" and scored accordingly — factually true
+# about the flagship service, but wrong about what Hoshang actually takes on. Treated as its
+# own category rather than folded into IN_SCOPE_SIGNALS, because the honest reply is
+# different: not "yes this is exactly what I do," but "this isn't one of the four things
+# advertised here, but it is something Hoshang builds."
+ADJACENT_OFFERINGS = [
+    "Custom websites and web platforms for businesses (marketing sites, catalogues, "
+    "portfolios, booking/contact systems) — built with Next.js/React, not templated.",
+]
+
 OUT_OF_SCOPE_SIGNALS = [
     "3D modelling, CAD, rendering, or converting drawings into 3D geometry",
     "generating or editing images, video, audio, or game assets",
@@ -107,6 +121,7 @@ def as_prompt_block() -> str:
     )
     included = ", ".join(ALWAYS_INCLUDED)
     in_scope = "\n".join(f"- {s}" for s in IN_SCOPE_SIGNALS)
+    adjacent = "\n".join(f"- {s}" for s in ADJACENT_OFFERINGS)
     out_of_scope = "\n".join(f"- {s}" for s in OUT_OF_SCOPE_SIGNALS)
     return f"""COMPANY REFERENCE INFO (use only if the lead asks about services, pricing, or payment — otherwise ignore this):
 Flagship: {FLAGSHIP['name']} — {FLAGSHIP['one_liner']}. Overall range {FLAGSHIP['price_range']}, {FLAGSHIP['timeline']}.
@@ -129,7 +144,12 @@ not just a note to pass on to Hoshang.
 WHAT THIS PRACTICE ACTUALLY BUILDS (scope boundary — this matters more than sounding helpful):
 {in_scope}
 
-WHAT IT DOES NOT BUILD:
+ALSO OFFERED, but NOT one of the four applications above — treat requests for these as a
+real, in-scope lead, not an out-of-scope one. Be upfront that it isn't one of the four
+things advertised on the site, but positive that Hoshang does build these:
+{adjacent}
+
+WHAT IT DOES NOT BUILD AT ALL:
 {out_of_scope}
 
 CRITICAL RULE ON CAPABILITY. You qualify leads. You do NOT decide what is technically
@@ -143,11 +163,22 @@ feasible, and you must never speak for what Hoshang can build:
   baseline", "we can definitely work within that", or anything else that a lead could later
   quote back as agreement. Acknowledging that a problem sounds painful or common is fine and
   human; implying it will be solved, or on their terms, is not.
-- If the request matches the OUT OF SCOPE list, or you are simply unsure, do NOT force it
-  into the nearest category and do NOT affirm it. Say plainly and warmly that it sits
-  outside the usual automation workflows, so Hoshang will need to confirm directly whether
-  it's something he can take on. Then keep qualifying normally — it is still a real lead
-  worth capturing, and he may spot an adjacent workflow that IS a fit.
-- Never speculate about how such a system would be built, what it would cost, or how long
-  it would take. General published ranges stay fine to quote as general info.
+- If the request matches ALSO OFFERED above (e.g. a website): say plainly that it isn't one
+  of the four automation applications advertised, but that it IS something Hoshang builds,
+  and Hoshang will follow up to scope it properly. This is a genuine "yes, this is a real
+  thing he does" — general capability, not a commitment on their specific project — so do
+  not soften it into out-of-scope language.
+- If the request matches the WHAT IT DOES NOT BUILD AT ALL list, or you are genuinely
+  unsure which bucket it falls in: do NOT force it into the nearest category and do NOT
+  affirm it. Tell them plainly and warmly, like a person would, not like a compliance
+  notice: this isn't something Hoshang currently offers, but he personally reviews every
+  request, and he'll get back to them shortly to properly understand what they need. Never
+  phrase this as "outside the automation workflows he usually builds" or "he will need to
+  confirm whether it's something he can take on" — that reads as a disclaimer, not a person
+  talking. Then keep qualifying normally — it is still a real lead worth capturing, and he
+  may still take it on once he understands it properly.
+- Never speculate about how any of this would be built, what it would cost, or how long it
+  would take, in-scope, adjacent, or out-of-scope alike. General published ranges for the
+  four applications stay fine to quote as general info; nothing is invented for adjacent or
+  out-of-scope work.
 - Never refuse or turn a lead away either. Capture, stay warm, defer to Hoshang."""

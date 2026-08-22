@@ -113,6 +113,42 @@ class TestTimelineUrgency:
         assert scoring._timeline_points({}) == 0
 
 
+class TestWebsiteRequestsAreInScope:
+    """2026-08-22: a real prospect (Sneha Thakkar) asked for a business website, was scored
+    scope_fit=out_of_scope, and came in at 35/100 — under the qualifying threshold. Website
+    work is real, delivered, sold work (see hoshangsheth.com/work — VK Bags), just not one
+    of the four flagship automation applications. It must never be scored the same as a
+    genuinely out-of-scope request like 3D rendering or a native mobile app."""
+
+    def test_website_service_type_derives_in_scope(self):
+        for service_type in ("Website Design/Development", "website design", "web development"):
+            result = scoring.score_lead({"service_type": service_type, "requirement_summary": "x"})
+            assert result["scope_flag"] == "in_scope", service_type
+
+    def test_the_exact_lead_that_scored_too_low(self):
+        result = scoring.score_lead({
+            "service_type": "Website Design/Development",
+            "requirement_summary": "wants a business website built",
+            "scope_fit": "in_scope",
+            "business_size": "12 people",
+            "budget_range": "not disclosed",
+            "timeline_expectation": "within a month",
+            "contact_name": "Sneha Thakkar",
+            "contact_preference": "Call / WhatsApp, same number",
+        })
+        assert result["qualified"], "was 35/100 and unqualified; a real website lead must clear the bar"
+        assert result["scope_flag"] == "in_scope"
+
+    def test_still_distinct_from_genuinely_out_of_scope(self):
+        """A website request and a 3D-rendering request must not collapse to the same
+        treatment just because both are outside the four flagship applications."""
+        website = scoring.score_lead({"service_type": "Website Design/Development"})
+        cad = scoring.score_lead({"service_type": "3D/CAD rendering", "scope_fit": "out_of_scope"})
+        assert website["scope_flag"] == "in_scope"
+        assert cad["scope_flag"] == "out_of_scope"
+        assert website["breakdown"]["scope_fit"] > cad["breakdown"]["scope_fit"]
+
+
 class TestScopeDerivedFromServiceType:
     """2026-08-22: a textbook Document Processing lead (200+ invoices into Tally) came back
     "unclassified" because an earlier drift meant service_requirement finished its turn

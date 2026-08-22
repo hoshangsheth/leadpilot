@@ -54,6 +54,12 @@ _SERVICE_TYPE_TO_SCOPE = (
     ("internalknowledgeops", "in_scope"),
     ("internalops", "in_scope"),
     ("internalknowledge", "in_scope"),
+    # Not one of the four applications, but real, delivered work (see company_knowledge.py
+    # ADJACENT_OFFERINGS and hoshangsheth.com/work) — a website request must never be scored
+    # as out-of-scope. See the 2026-08-22 Sneha Thakkar lead this was missing for.
+    ("website", "in_scope"),
+    ("webdevelopment", "in_scope"),
+    ("webdesign", "in_scope"),
 )
 
 _MULTIPLIERS = (
