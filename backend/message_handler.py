@@ -17,8 +17,9 @@ from db.models import Lead, Conversation, Message, Qualification
 from integrations.whatsapp_client import send_message
 from conversation_engine import process_message, MAX_MESSAGES
 from scoring import score_lead
-from integrations.email_service import send_qualified_lead_email
+from integrations.email_service import send_qualified_lead_email, send_handoff_email
 from observability.logger import log_transition
+from routing import detect_bypass, detect_source, BYPASS_REPLIES
 
 logger = logging.getLogger("leadpilot.webhook")
 
@@ -125,6 +126,32 @@ def handle_message(msg: dict):
 
         current_state = conversation.state
         collected_fields = dict(conversation.collected_fields or {})
+
+        # Attribution, read off the opening message rather than asked for. The site pre-fills
+        # a different message per entry point, so the source is already in the text — see
+        # routing.detect_source. Recorded once, on the first message only.
+        if message_count_before_this == 0 and "lead_source" not in collected_fields:
+            collected_fields["lead_source"] = detect_source(body_text)
+            conversation.collected_fields = collected_fields
+
+        # Warm contacts and explicit human requests never enter the funnel. Checked before the
+        # Gemini call, so a referral costs nothing and, more importantly, is never asked for
+        # their budget by a robot. See routing.detect_bypass.
+        bypass = detect_bypass(body_text, message_count_before_this + 1)
+        if bypass:
+            reply_text = BYPASS_REPLIES[bypass]
+            lead.human_takeover = True
+            db.add(Message(
+                conversation_id=conversation.id,
+                wa_message_id=f"{wa_message_id}-reply",
+                direction="out",
+                text=reply_text,
+            ))
+            db.commit()
+            logger.info("Lead %s bypassed funnel (%s) — handed to Hoshang", lead.id, bypass)
+            send_handoff_email(wa_number, bypass, body_text, collected_fields.get("lead_source", "Unknown"))
+            _send_reply(wa_number, reply_text, now)
+            return
         history = [
             m.text
             for m in db.query(Message)

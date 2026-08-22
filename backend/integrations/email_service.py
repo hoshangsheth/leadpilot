@@ -73,6 +73,45 @@ def _blockers_html(blockers: list[str]) -> str:
     )
 
 
+def send_handoff_email(wa_number: str, reason: str, first_message: str, source: str) -> None:
+    """Fires when a warm contact or an explicit human request bypasses the funnel.
+
+    This notification is not optional. The bot's number is not Hoshang's personal phone, so a
+    bypassed conversation is one he cannot see — going silent without telling him would drop
+    the highest-intent leads he gets (referrals, people who know him) into a void. Sent
+    instead of the qualified-lead email, since there is no score and no funnel data.
+    """
+    wa_number = html.escape(wa_number)
+    first_message = html.escape(first_message)
+    source = html.escape(source)
+    label = {
+        "warm": "Warm contact — referral or personal connection",
+        "human_request": "Asked to speak to you directly",
+    }.get(reason, reason)
+
+    subject = f"[REPLY PERSONALLY] {label} — {wa_number}"
+    html_body = f"""
+    <h2>Bot handed off — no qualification run</h2>
+    <p style="margin:0 0 16px;padding:12px 14px;border-left:4px solid #1a7f37;background:#e8f5ec;
+    color:#1a7f37;font-weight:600;">{html.escape(label)}. They were NOT put through the
+    qualification questions. Reply to them yourself.</p>
+    <ul>
+        <li><strong>WhatsApp:</strong> {wa_number}</li>
+        <li><strong>Source:</strong> {source}</li>
+        <li><strong>They said:</strong> {first_message}</li>
+    </ul>
+    """
+    try:
+        resend.Emails.send({
+            "from": "LeadPilot <onboarding@resend.dev>",
+            "to": config.NOTIFY_EMAIL,
+            "subject": subject,
+            "html": html_body,
+        })
+    except Exception:
+        logger.exception("Failed to send handoff email for wa_number=%s", wa_number)
+
+
 def send_qualified_lead_email(wa_number: str, collected_fields: dict, score_result: dict) -> None:
     # Every one of these fields ultimately comes from free text a stranger typed on WhatsApp,
     # then passed through the model into extracted_fields. Escaping before HTML interpolation
@@ -86,6 +125,7 @@ def send_qualified_lead_email(wa_number: str, collected_fields: dict, score_resu
     timeline = html.escape(collected_fields.get("timeline_expectation", "-"))
     preference = html.escape(collected_fields.get("contact_preference", "-"))
     notes = html.escape(collected_fields.get("additional_notes", "-"))
+    lead_source = html.escape(collected_fields.get("lead_source", "Unknown"))
     wa_number = html.escape(wa_number)
 
     scope_flag = score_result.get("scope_flag", "unknown")
@@ -110,6 +150,7 @@ def send_qualified_lead_email(wa_number: str, collected_fields: dict, score_resu
     <ul>
         <li><strong>Name:</strong> {name}</li>
         <li><strong>WhatsApp:</strong> {wa_number}</li>
+        <li><strong>Source:</strong> {lead_source}</li>
         <li><strong>Service type:</strong> {service_type}</li>
         <li><strong>Requirement:</strong> {requirement}</li>
         <li><strong>Business size:</strong> {business_size}</li>
