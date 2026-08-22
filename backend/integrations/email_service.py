@@ -12,6 +12,42 @@ import config
 resend.api_key = config.RESEND_API_KEY
 logger = logging.getLogger("leadpilot.email")
 
+# Rendered as a banner at the very top of the email. A scope mismatch changes how Hoshang
+# should open the call (honest "here's what I can and can't do" vs. straight into discovery),
+# so it must be impossible to miss — not something to infer from a slightly lower score.
+_SCOPE_BANNERS = {
+    "in_scope": (
+        "#1a7f37", "#e8f5ec",
+        "In scope. Matches the usual automation workflows.",
+    ),
+    "partial": (
+        "#9a6700", "#fff8e5",
+        "Partial fit. The core ask sits outside the practice, but there may be an adjacent "
+        "workflow worth building. Confirm what is actually feasible before scoping.",
+    ),
+    "out_of_scope": (
+        "#b3261e", "#fdecea",
+        "OUT OF SCOPE. This is not something the practice builds. The assistant did not "
+        "promise otherwise, but open the call by being straight about that, then look for a "
+        "workflow around the edges that IS a fit.",
+    ),
+    "unclear": (
+        "#57606a", "#f3f4f6",
+        "Scope unclear from the conversation. Establish what they actually need on the call.",
+    ),
+}
+
+
+def _scope_banner_html(scope_flag: str) -> str:
+    banner = _SCOPE_BANNERS.get(scope_flag)
+    if banner is None:
+        return ""
+    color, background, message = banner
+    return (
+        f'<p style="margin:0 0 16px;padding:12px 14px;border-left:4px solid {color};'
+        f'background:{background};color:{color};font-weight:600;">{html.escape(message)}</p>'
+    )
+
 
 def send_qualified_lead_email(wa_number: str, collected_fields: dict, score_result: dict) -> None:
     # Every one of these fields ultimately comes from free text a stranger typed on WhatsApp,
@@ -28,9 +64,18 @@ def send_qualified_lead_email(wa_number: str, collected_fields: dict, score_resu
     notes = html.escape(collected_fields.get("additional_notes", "-"))
     wa_number = html.escape(wa_number)
 
-    subject = f"New Qualified Lead: {name} — {service_type}"
+    scope_flag = score_result.get("scope_flag", "unknown")
+    # Prefixed into the subject line too, so a mismatch is visible from the inbox list
+    # without opening the mail.
+    subject_prefix = {
+        "out_of_scope": "[OUT OF SCOPE] ",
+        "partial": "[PARTIAL FIT] ",
+    }.get(scope_flag, "")
+
+    subject = f"{subject_prefix}New Qualified Lead: {name} — {service_type}"
     html_body = f"""
     <h2>New Qualified Lead</h2>
+    {_scope_banner_html(scope_flag)}
     <p><strong>Score:</strong> {score_result['score']}/100</p>
     <ul>
         <li><strong>Name:</strong> {name}</li>

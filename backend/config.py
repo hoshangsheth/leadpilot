@@ -2,10 +2,13 @@
 host's environment in production) into module-level constants used throughout the app.
 """
 
+import logging
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger("leadpilot.config")
 
 WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
@@ -43,3 +46,20 @@ if _missing:
         f"Missing required environment variable(s): {', '.join(_missing)}. "
         "Set them in the environment (or backend/.env for local dev) before starting the app."
     )
+
+# CALENDLY_LINK is the one env var whose *value* is sent verbatim to real leads, so a wrong
+# one fails silently and expensively: every qualified lead gets a dead booking link and simply
+# never books, with nothing in the logs to show for it. That is exactly what happened on
+# 2026-08-22 — the link still pointed at a slug that no longer existed after the real Calendly
+# event was created, and it was only caught by manually reading a transcript.
+#
+# Shape validation catches the empty/typo'd/wrong-domain cases at boot. It cannot know the
+# correct slug, so the resolved link is also logged at startup: the deploy log now always
+# states which booking URL this instance will hand out, making a stale value visible at deploy
+# time instead of discoverable only through a lost lead.
+if not CALENDLY_LINK.startswith("https://calendly.com/"):
+    raise RuntimeError(
+        f"CALENDLY_LINK must be a https://calendly.com/... URL, got: {CALENDLY_LINK!r}. "
+        "This value is sent directly to leads, so it is validated at boot."
+    )
+logger.info("Booking link in use for qualified leads: %s", CALENDLY_LINK)
