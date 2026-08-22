@@ -59,3 +59,35 @@ OPTIONAL_FIELDS = ["scope_fit"]
 # key from the model traps the conversation in this state re-asking a question the lead has
 # already answered. Scoring treats an absent scope_fit as "unknown" and neither rewards nor
 # punishes it, so a miss degrades to the old behaviour instead of breaking the conversation.
+
+# Value-level canonicalization, the direct counterpart to ALIASES (which canonicalizes field
+# KEYS in contact_verification.py). Same defense-in-depth reasoning, applied one level down.
+#
+# Why: on 2026-08-22 the model classified a CCTV/video-analytics lead perfectly and emitted
+# scope_fit="Out of scope" — correct judgment, human-readable capitalization. Scoring looked it
+# up in a dict keyed "out_of_scope", missed, and silently fell through to the neutral default.
+# The lead scored 79 instead of 67, and the email lost both its red banner and its subject
+# prefix. The model was right and the plumbing threw the answer away.
+#
+# An enum crossing an LLM boundary must never be compared with ==. Reduce to alphanumerics
+# only, so spacing, casing, hyphens and underscores all collapse to the same key.
+VALUE_ALIASES = {
+    "scope_fit": {
+        "inscope": "in_scope",
+        "fits": "in_scope",
+        "fit": "in_scope",
+        "outofscope": "out_of_scope",
+        "outsidescope": "out_of_scope",
+        "outside": "out_of_scope",
+        "notinscope": "out_of_scope",
+        "nofit": "out_of_scope",
+        "partial": "partial",
+        "partialfit": "partial",
+        "partiallyinscope": "partial",
+        "adjacent": "partial",
+        "unclear": "unclear",
+        "unknown": "unclear",
+        "unsure": "unclear",
+        "tbd": "unclear",
+    }
+}

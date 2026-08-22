@@ -35,14 +35,18 @@ _SCOPE_BANNERS = {
         "#57606a", "#f3f4f6",
         "Scope unclear from the conversation. Establish what they actually need on the call.",
     ),
+    # Never render silence. An unrecognized flag previously produced no banner at all, which
+    # is indistinguishable from "everything is fine" — that is precisely how the 2026-08-22
+    # normalization bug stayed invisible in the inbox. Say so explicitly instead.
+    "unknown": (
+        "#57606a", "#f3f4f6",
+        "Scope was not classified for this lead. Treat fit as unverified and confirm on the call.",
+    ),
 }
 
 
 def _scope_banner_html(scope_flag: str) -> str:
-    banner = _SCOPE_BANNERS.get(scope_flag)
-    if banner is None:
-        return ""
-    color, background, message = banner
+    color, background, message = _SCOPE_BANNERS.get(scope_flag, _SCOPE_BANNERS["unknown"])
     return (
         f'<p style="margin:0 0 16px;padding:12px 14px;border-left:4px solid {color};'
         f'background:{background};color:{color};font-weight:600;">{html.escape(message)}</p>'

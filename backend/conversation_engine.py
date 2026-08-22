@@ -41,6 +41,38 @@ ALL_ALIASES: dict[str, str] = {}
 for _module in STATE_MODULES.values():
     ALL_ALIASES.update(getattr(_module, "ALIASES", {}))
 
+# Value-level counterpart to ALL_ALIASES: {field_name: {reduced_value: canonical_value}}.
+# Field KEYS were already canonicalized; the values of enum-like fields were not, which let a
+# correctly-classified lead be scored as if it had never been classified at all. See
+# states/service_requirement.py VALUE_ALIASES for the incident this came from.
+ALL_VALUE_ALIASES: dict[str, dict[str, str]] = {}
+for _module in STATE_MODULES.values():
+    for _field, _mapping in getattr(_module, "VALUE_ALIASES", {}).items():
+        ALL_VALUE_ALIASES.setdefault(_field, {}).update(_mapping)
+
+_NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _reduce_value(value: str) -> str:
+    """Collapse an enum-ish value to alphanumerics only, so 'Out of scope', 'out-of-scope',
+    'OUT_OF_SCOPE' and 'OutOfScope' all reduce to the same lookup key."""
+    return _NON_ALNUM_RE.sub("", value.strip().lower())
+
+
+def normalize_field_values(fields: dict) -> dict:
+    """Canonicalize enum-like field values. Anything without a registered mapping, or whose
+    value isn't recognized, is passed through untouched — this only ever tightens known
+    enums, it never rewrites free text like requirement_summary."""
+    normalized = {}
+    for key, value in fields.items():
+        mapping = ALL_VALUE_ALIASES.get(key)
+        if mapping and isinstance(value, str):
+            canonical = mapping.get(_reduce_value(value))
+            normalized[key] = canonical if canonical else value
+        else:
+            normalized[key] = value
+    return normalized
+
 # The prompt already instructs no em dash, but an LLM occasionally ignores a style rule
 # under load. Rather than trust compliance, strip it deterministically -- same reasoning as
 # the Calendly link being injected in code instead of model-generated, and every field being
@@ -144,9 +176,9 @@ async def process_message(state_name: str, collected_fields: dict, history: list
     # just the current one) since a field can now legitimately be volunteered and extracted
     # before its "home" state is reached. See states/contact_verification.py for why this
     # exists in the first place.
-    result.extracted_fields = {
+    result.extracted_fields = normalize_field_values({
         ALL_ALIASES.get(k, k): v for k, v in result.extracted_fields.items()
-    }
+    })
 
     result = validate_turn_result(result, state_name, collected_fields)
 

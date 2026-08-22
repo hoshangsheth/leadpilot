@@ -41,21 +41,76 @@ def _budget_points(collected_fields: dict) -> int:
     return 10 if echoes_published_range else 20
 
 
+_SCOPE_POINTS = {
+    "in_scope": 25,
+    "partial": 12,
+    "out_of_scope": 0,
+    "unclear": 6,
+}
+_UNKNOWN_SCOPE_POINTS = 12
+
+
+def _canonical_scope(collected_fields: dict) -> str:
+    """The canonical scope_fit key, or "unknown" if absent/unrecognized."""
+    raw = (collected_fields.get("scope_fit") or "").strip().lower()
+    reduced = "".join(ch for ch in raw if ch.isalnum())
+    for canonical in _SCOPE_POINTS:
+        if reduced == canonical.replace("_", ""):
+            return canonical
+    return "unknown"
+
+
 def _scope_points(collected_fields: dict) -> int:
     """How well the ask matches what Hoshang actually builds.
 
-    An absent scope_fit scores as "unknown" (partial credit, 12) rather than 0 — the field is
-    optional by design (see states/service_requirement.py), and a lead must never be penalised
-    for the model forgetting to emit a key. Unknown lands mid-range so a missing field cannot
-    silently promote a bad lead or bury a good one.
+    Values are canonicalized upstream (conversation_engine.normalize_field_values), but this
+    reduction is repeated here rather than assumed: scoring also runs over rows written before
+    that normalization existed, and over the message-cap forced-handoff path. Comparing an
+    LLM-sourced enum with == is what caused the 2026-08-22 misscore in the first place.
+
+    An unrecognized/absent scope_fit scores as "unknown" (partial credit) rather than 0 — the
+    field is optional by design (see states/service_requirement.py), and a lead must never be
+    penalised for the model forgetting a key. Unknown lands mid-range so a missing field can
+    neither silently promote a bad lead nor bury a good one.
     """
-    scope_fit = (collected_fields.get("scope_fit") or "").strip().lower()
-    return {
-        "in_scope": 25,
-        "partial": 12,
-        "out_of_scope": 0,
-        "unclear": 6,
-    }.get(scope_fit, 12)
+    raw = (collected_fields.get("scope_fit") or "").strip().lower()
+    reduced = "".join(ch for ch in raw if ch.isalnum())
+    for canonical, points in _SCOPE_POINTS.items():
+        if reduced == canonical.replace("_", ""):
+            return points
+    return _UNKNOWN_SCOPE_POINTS
+
+
+# Checked before the urgent markers, so "no specific timeline, but not months away" is not
+# scored urgent just because it contains the word "month".
+_NOT_URGENT_MARKERS = (
+    "flexible", "no specific", "no rush", "not urgent", "no timeline",
+    "exploring", "just looking", "sometime", "no deadline", "whenever",
+)
+_URGENT_MARKERS = (
+    "urgent", "asap", "immediate", "as soon as", "right away", "priority",
+    "this week", "this month", "next month", "within a week", "within a month",
+    "within 1 month", "within one month", "deadline", "audit", "launch",
+    "before ", "by end of", "1 month", "one month", "2 week", "two week",
+)
+
+
+def _timeline_points(collected_fields: dict) -> int:
+    """Urgency from free-text timeline, not an exact "urgent" string match.
+
+    The model stores what the lead actually said ("within a month", "need it live before our
+    audit"), not a normalized enum, so `timeline == "urgent"` only ever fired when the lead
+    happened to use that exact word. A retail lead with a hard audit deadline one month out
+    scored the same 7 points as someone with no timeline at all.
+    """
+    timeline = (collected_fields.get("timeline_expectation") or "").strip().lower()
+    if not timeline or timeline in ("none", "not disclosed", "unknown"):
+        return 0
+    if any(marker in timeline for marker in _NOT_URGENT_MARKERS):
+        return 7
+    if any(marker in timeline for marker in _URGENT_MARKERS):
+        return 15
+    return 7
 
 
 def score_lead(collected_fields: dict) -> dict:
@@ -67,14 +122,7 @@ def score_lead(collected_fields: dict) -> dict:
 
     breakdown["scope_fit"] = _scope_points(collected_fields)
     breakdown["budget_disclosed"] = _budget_points(collected_fields)
-
-    timeline = (collected_fields.get("timeline_expectation") or "").strip().lower()
-    if timeline == "urgent":
-        breakdown["timeline_urgency"] = 15
-    elif timeline:
-        breakdown["timeline_urgency"] = 7
-    else:
-        breakdown["timeline_urgency"] = 0
+    breakdown["timeline_urgency"] = _timeline_points(collected_fields)
 
     has_contact = bool(collected_fields.get("contact_name")) and bool(
         collected_fields.get("contact_preference")
@@ -88,6 +136,7 @@ def score_lead(collected_fields: dict) -> dict:
         "qualified": total >= QUALIFIED_THRESHOLD,
         # Surfaced separately from the score so the notification email can lead with it.
         # A scope mismatch is not something Hoshang should have to infer from a number —
-        # it changes how he opens the call.
-        "scope_flag": (collected_fields.get("scope_fit") or "unknown").strip().lower(),
+        # it changes how he opens the call. Canonicalized through the same reduction as the
+        # points lookup, so the email's banner can never miss on a value the scorer matched.
+        "scope_flag": _canonical_scope(collected_fields),
     }
