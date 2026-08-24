@@ -77,15 +77,29 @@ def detect_bypass(text: str, message_count: int) -> str | None:
 # Deliberately narrow to genuine identity questions, not any mention of the word "bot"
 # ("can you build me a chatbot" must NOT match — that is a real requirement, not a question
 # about what they're talking to).
+#
+# Present-tense only originally, and it cost a real reply: a lead (Vikram Oberoi, 2026-08-22)
+# asked "was that a bot answering me this whole time?" right after the conversation closed —
+# past tense, referring back rather than asking in the moment — and every pattern here was
+# written as "is"/"are", so none of them matched. Every present-tense pattern below now has
+# a past-tense sibling (was/were alongside is/are) for exactly this reason: someone reflecting
+# on a conversation that just ended is at least as likely to phrase it in the past as the
+# present, and this check only runs post-handoff, where reflecting-back phrasing is the norm,
+# not the exception.
 _IDENTITY_QUESTION_PATTERNS = (
-    r"\bis (this|it|the number) a bot\b",
-    r"\bare you a bot\b",
-    r"\bare you (an )?ai\b",
-    r"\bare you (a )?real (person|human)\b",
-    r"\bare you human\b",
-    r"\bam i (talking|chatting|speaking) (to|with) a (bot|real person|human|person)\b",
-    r"\bis this automated\b",
-    r"\bis this a real person\b",
+    r"\b(is|was|were) (this|that|it|the number) (a bot|an ai|automated)\b",
+    r"\b(are|were) you (a )?bot\b",
+    r"\b(are|were) you (an )?ai\b",
+    r"\b(are|were) you (a )?real (person|human)\b",
+    r"\b(are|were) you human\b",
+    r"\b(am|was) i (talking|chatting|speaking) (to|with) (a |an )?(bot|real person|human|person|ai)\b",
+    r"\b(is|was) (this|that) a real person\b",
+    # "you're"/"you were" as a statement rather than a question ("so you're a bot",
+    # "you were AI this whole time") — someone concluding out loud, not just asking.
+    r"\byou'?re (a )?bot\b",
+    r"\byou'?re (an )?ai\b",
+    r"\byou were (a )?bot\b",
+    r"\byou were (an )?ai\b",
 )
 _IDENTITY_QUESTION_RE = re.compile("|".join(_IDENTITY_QUESTION_PATTERNS), re.I)
 

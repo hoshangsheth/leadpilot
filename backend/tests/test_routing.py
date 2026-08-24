@@ -27,6 +27,20 @@ class TestIdentityQuestion:
         ]:
             assert is_identity_question(message), message
 
+    def test_past_tense_and_reflective_phrasing_matches(self):
+        """2026-08-22: a real lead (Vikram Oberoi) asked "was that a bot answering me this
+        whole time?" right after the conversation closed — reflecting back, not asking in
+        the moment — and got zero reply, because every original pattern was present-tense
+        only ("is"/"are"). This check runs post-handoff, where reflecting-back phrasing on
+        a conversation that just ended is the norm, not the exception."""
+        for message in [
+            "wait, so was that a bot answering me this whole time?",
+            "was that a bot", "were you a bot the whole time", "was I talking to an AI",
+            "so you were AI this whole time", "so you're a bot then", "was that a real person",
+            "am i chatting with a bot",
+        ]:
+            assert is_identity_question(message), message
+
     def test_real_requirements_mentioning_bots_do_not_match(self):
         """The near-miss that matters: wanting a bot built is a requirement, not a question
         about what they're currently talking to."""
