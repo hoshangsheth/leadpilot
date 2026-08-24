@@ -117,13 +117,24 @@ IDENTITY_QUESTION_REPLY = (
 BYPASS_REPLIES = {
     "warm": (
         "Thanks for reaching out! I'll pass this straight to Hoshang rather than ask you "
-        "the usual questions, he'll message you personally shortly."
+        "the usual questions, he'll message you personally shortly. What's your name, so "
+        "he knows who to expect?"
     ),
     "human_request": (
         "Of course, I'll let Hoshang know right away and he'll get back to you personally. "
-        "Thanks for your patience!"
+        "Thanks for your patience! What's your name, so he knows who's asking?"
     ),
 }
+# A bypassed lead's handoff email previously carried nothing but a raw phone number — no way
+# to know who's on the other end before opening WhatsApp. On 2026-08-24 this was flagged
+# directly: "even though it's a referral or direct, AI should at least get the name."
+#
+# The bypass reply above now asks for it, but the reply to that ask is NOT reliably a clean
+# name — the exact lead this was raised for came back with "Ok will wait for his call," not
+# a name. Treating whatever comes back as a confident contact_name would silently corrupt
+# the field with garbage. Instead the raw reply is forwarded to Hoshang labeled as exactly
+# that — their reply to the name request — so he sees it as-is and judges for himself,
+# rather than the system pretending certainty it doesn't have.
 
 
 # --- Attribution ------------------------------------------------------------------------

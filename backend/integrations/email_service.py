@@ -112,6 +112,30 @@ def send_handoff_email(wa_number: str, reason: str, first_message: str, source: 
         logger.exception("Failed to send handoff email for wa_number=%s", wa_number)
 
 
+def send_bypass_name_followup_email(wa_number: str, reply_text: str) -> None:
+    """Fires once, the first time a bypassed lead replies after being asked their name (see
+    routing.BYPASS_REPLIES). Deliberately does NOT claim the reply is a clean name — on
+    2026-08-24 the lead this was built for replied "Ok will wait for his call," not a name.
+    Labeled as their raw reply so Hoshang judges it himself rather than the system asserting
+    a certainty it doesn't have.
+    """
+    wa_number = html.escape(wa_number)
+    reply_text = html.escape(reply_text)
+    try:
+        resend.Emails.send({
+            "from": "LeadPilot <onboarding@resend.dev>",
+            "to": config.NOTIFY_EMAIL,
+            "subject": f"Reply to name request — {wa_number}",
+            "html": f"""
+            <h2>Follow-up on a handed-off lead</h2>
+            <p><strong>WhatsApp:</strong> {wa_number}</p>
+            <p><strong>Replied to "what's your name":</strong> {reply_text}</p>
+            """,
+        })
+    except Exception:
+        logger.exception("Failed to send bypass name-followup email for wa_number=%s", wa_number)
+
+
 def send_lead_notification_email(wa_number: str, collected_fields: dict, score_result: dict) -> None:
     """Fires for every conversation that reaches qualification_decision — qualified or not.
 

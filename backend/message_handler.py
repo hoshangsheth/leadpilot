@@ -17,7 +17,7 @@ from db.models import Lead, Conversation, Message, Qualification
 from integrations.whatsapp_client import send_message
 from conversation_engine import process_message, MAX_MESSAGES, ensure_bot_disclosure, ensure_closing_thanks
 from scoring import score_lead
-from integrations.email_service import send_lead_notification_email, send_handoff_email
+from integrations.email_service import send_lead_notification_email, send_handoff_email, send_bypass_name_followup_email
 from observability.logger import log_transition
 from routing import detect_bypass, detect_source, BYPASS_REPLIES, is_identity_question, IDENTITY_QUESTION_REPLY
 
@@ -106,6 +106,25 @@ def handle_message(msg: dict):
             db.flush()
 
         if lead.human_takeover:
+            existing_fields = dict(conversation.collected_fields or {})
+            awaiting_bypass_name = existing_fields.pop("_awaiting_bypass_name", False)
+
+            if awaiting_bypass_name:
+                # Their reply to the "what's your name?" ask in the bypass message. NOT
+                # trusted as a clean name (see send_bypass_name_followup_email's docstring —
+                # the lead this was built for replied "Ok will wait for his call," not a
+                # name), just forwarded to Hoshang labeled as their raw reply so he can judge
+                # it himself. One-shot: the flag is cleared either way, so only the first
+                # reply after a bypass gets this treatment.
+                conversation.collected_fields = existing_fields
+                db.add(Message(
+                    conversation_id=conversation.id, wa_message_id=wa_message_id, direction="in", text=body_text
+                ))
+                db.commit()
+                logger.info("Lead %s replied after bypass name request — forwarded to Hoshang", lead.id)
+                send_bypass_name_followup_email(wa_number, body_text)
+                return
+
             # A direct "is this a bot?" is the one thing that still gets answered here.
             # Everything else genuinely should stay silent — no Gemini call, no reopening a
             # closed funnel — but a truthful yes/no about what they're talking to costs
@@ -168,6 +187,12 @@ def handle_message(msg: dict):
         if bypass:
             reply_text = ensure_closing_thanks(BYPASS_REPLIES[bypass])
             lead.human_takeover = True
+            # The bypass reply now asks for their name (see routing.BYPASS_REPLIES) — this
+            # flag makes their very next message get treated as the reply to that ask, rather
+            # than silently dropped like everything else once human_takeover is set. Cleared
+            # (and acted on) in the human_takeover branch above.
+            collected_fields["_awaiting_bypass_name"] = True
+            conversation.collected_fields = collected_fields
             db.add(Message(
                 conversation_id=conversation.id,
                 wa_message_id=f"{wa_message_id}-reply",
