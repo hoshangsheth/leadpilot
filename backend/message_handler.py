@@ -15,7 +15,7 @@ import config
 from db.db import SessionLocal
 from db.models import Lead, Conversation, Message, Qualification
 from integrations.whatsapp_client import send_message
-from conversation_engine import process_message, MAX_MESSAGES, ensure_bot_disclosure
+from conversation_engine import process_message, MAX_MESSAGES, ensure_bot_disclosure, ensure_closing_thanks
 from scoring import score_lead
 from integrations.email_service import send_lead_notification_email, send_handoff_email
 from observability.logger import log_transition
@@ -166,7 +166,7 @@ def handle_message(msg: dict):
         # their budget by a robot. See routing.detect_bypass.
         bypass = detect_bypass(body_text, message_count_before_this + 1)
         if bypass:
-            reply_text = BYPASS_REPLIES[bypass]
+            reply_text = ensure_closing_thanks(BYPASS_REPLIES[bypass])
             lead.human_takeover = True
             db.add(Message(
                 conversation_id=conversation.id,
@@ -285,6 +285,9 @@ def handle_message(msg: dict):
             # docstring for the real lead this happened to. The threshold decides whether a
             # lead gets a self-service Calendly link, not whether Hoshang finds out at all.
             should_email = True
+            # Enforced in code — see ensure_closing_thanks. Applied before the Calendly line,
+            # so a qualified lead reads thanks, then the link, in that order.
+            reply_text = ensure_closing_thanks(reply_text)
             if result["qualified"]:
                 # Calendly link is injected deterministically, never model-generated —
                 # a hallucinated/malformed URL in a real lead's WhatsApp is not acceptable.
@@ -361,6 +364,7 @@ def _apply_force_handoff(
     collected_fields = {**collected_fields, "incomplete": incomplete_reason}
     result = score_lead(collected_fields)
 
+    reply_text = ensure_closing_thanks(reply_text)
     if result["qualified"]:
         reply_text = f"{reply_text}\n\nFeel free to grab a slot directly: {config.CALENDLY_LINK}"
 

@@ -105,6 +105,29 @@ def ensure_bot_disclosure(reply_text: str) -> str:
     return f"{_AI_DISCLOSURE} {reply_text}"
 
 
+_CLOSING_THANKS = "Thank you for your time!"
+
+
+def ensure_closing_thanks(reply_text: str) -> str:
+    """Guarantee every conversation-ending message closes with a thank-you.
+
+    Applied at every path where the bot says its actual last thing to a lead: the normal
+    additional_notes close, both deterministic forced-handoff closes (message cap and the
+    additional_notes retry cap), and the bypass replies (warm contact / human request). Not
+    left to the model or to a state's own copy for the same reason as the Calendly link and
+    the bot disclosure — ending politely is a courtesy Hoshang wants unconditionally, not
+    something that should depend on whichever state happened to generate the close.
+
+    Checks for the exact phrase rather than any mention of "thanks", so a message that
+    already opens with "Thanks for reaching out!" still gets this specific closing line —
+    an opening thanks and a closing thank-you read as two distinct, ordinary courtesies in
+    English, not a duplicate.
+    """
+    if _CLOSING_THANKS.lower() in reply_text.lower():
+        return reply_text
+    return f"{reply_text}\n\n{_CLOSING_THANKS}"
+
+
 def build_prompt(state_name: str, collected_fields: dict, history: list[str], user_text: str) -> tuple[str, str]:
     module = STATE_MODULES[state_name]
     missing = [f for f in module.REQUIRED_FIELDS if f not in collected_fields or not collected_fields[f]]
