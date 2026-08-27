@@ -146,6 +146,7 @@ _SOURCE_PATTERNS = (
     (re.compile(r"i just tried the (.+?) on your site", re.I), "Demo Space: {}"),
     (re.compile(r"i'?m exploring (.+?) for my business", re.I), "Service page: {}"),
     (re.compile(r"know more about your automation", re.I), "Website CTA"),
+    (re.compile(r"\b(got|received|saw) (an |your |the )?email\b|\byou emailed me\b", re.I), "Outbound email reply"),
 )
 
 

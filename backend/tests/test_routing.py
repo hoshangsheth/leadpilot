@@ -146,3 +146,15 @@ class TestAttribution:
     def test_hand_typed_message_is_direct_or_referral(self):
         for message in ("hi", "need some automation stuff for my business", ""):
             assert "Direct" in detect_source(message) or detect_source(message) == "Unknown"
+
+    def test_outbound_email_reply(self):
+        """Distinguishes a reply to Hoshang's own outreach email from an organic referral —
+        both used to collapse into the same "Direct / referral" bucket, making it impossible
+        to tell outreach conversion from organic contact in the notification email."""
+        for message in [
+            "Hi, got your email about AI work",
+            "hey I received your email, curious to know more",
+            "you emailed me about automation",
+            "Hi Hoshang, saw your email today",
+        ]:
+            assert detect_source(message) == "Outbound email reply", message
