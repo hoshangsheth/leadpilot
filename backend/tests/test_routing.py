@@ -156,5 +156,9 @@ class TestAttribution:
             "hey I received your email, curious to know more",
             "you emailed me about automation",
             "Hi Hoshang, saw your email today",
+            "Hi, following up on your email",
+            "following up on my email to you, curious to know more",
+            "just replying to your email",
+            "in response to your email about AI systems",
         ]:
             assert detect_source(message) == "Outbound email reply", message
