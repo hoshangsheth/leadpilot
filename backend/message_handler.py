@@ -263,29 +263,7 @@ def handle_message(msg: dict):
             _send_reply(wa_number, reply_text, now)
             return
 
-        # Additional Notes retry cap — this is the one state whose own instructions allow it
-        # to loop indefinitely (re-asking "anything else?" for as long as the lead keeps
-        # asking questions instead of closing out). Bounded only by the global MAX_MESSAGES
-        # cap above, that's a very loose limit for one specific state, and every extra round
-        # is a real Gemini cost for a conversation that has, in practice, already collected
-        # everything scoring needs. After NOTES_RETRY_LIMIT rounds without a clean close-out,
-        # close deterministically instead of asking a Nth time.
         notes_retries = int(collected_fields.get("_notes_retry_count", 0) or 0)
-        if current_state == "additional_notes" and notes_retries >= NOTES_RETRY_LIMIT:
-            reply_text, result = _apply_force_handoff(
-                db, conversation, collected_fields,
-                reply_text=(
-                    "I want to make sure this doesn't turn into an endless back-and-forth, so "
-                    "I'll close things out here. Hoshang has everything from our chat and will "
-                    "follow up with you personally, this conversation is now closed on my end."
-                ),
-                incomplete_reason="notes_retry_cap",
-            )
-            db.commit()
-            log_transition(lead_id, current_state, "qualification_decision", None, "notes_retry_cap_forced")
-            send_lead_notification_email(wa_number, collected_fields, result)
-            _send_reply(wa_number, reply_text, now)
-            return
 
         t0 = time.monotonic()
         outcome = asyncio.run(process_message(current_state, collected_fields, history, body_text))
@@ -301,15 +279,40 @@ def handle_message(msg: dict):
             return
 
         reply_text, new_state, updated_fields = outcome
-        just_qualified = new_state == "qualification_decision" and current_state != "qualification_decision"
         should_email = False
         result = None
 
-        # Counts each round the lead spends in additional_notes without closing out yet — see
-        # NOTES_RETRY_LIMIT above. Only increments while genuinely looping in this one state;
-        # anywhere else the key stays absent/zero and is a no-op.
+        # Additional Notes retry cap — this is the one state whose own instructions allow it
+        # to loop indefinitely (re-asking "anything else?" for as long as the lead keeps
+        # asking questions instead of closing out). Bounded only by the global MAX_MESSAGES
+        # cap above, that's a very loose limit for one specific state, and every extra round
+        # is a real Gemini cost for a conversation that has, in practice, already collected
+        # everything scoring needs.
+        #
+        # This only overrides the model's OWN reply once NOTES_RETRY_LIMIT rounds are reached
+        # AND the model is still stuck in additional_notes after processing the current
+        # message — a close-out answer on any round, including the Nth, always gets evaluated
+        # by Gemini first. Until 2026-09-07 this cap was checked BEFORE calling Gemini, using
+        # only the count from PRIOR turns, so a genuine close-out arriving exactly on the Nth
+        # round never got a chance: three earlier rounds that had each correctly answered a
+        # real question (which additional_notes.py explicitly allows, and is not stalling)
+        # tripped the same counter as actual stalling, and the very next message — a real
+        # "that's all thanks" — was swallowed by the deterministic force-close before Gemini
+        # ever saw it.
         if current_state == "additional_notes" and new_state == "additional_notes":
-            updated_fields["_notes_retry_count"] = notes_retries + 1
+            notes_retries += 1
+            if notes_retries >= NOTES_RETRY_LIMIT:
+                new_state = "qualification_decision"
+                reply_text = (
+                    "I want to make sure this doesn't turn into an endless back-and-forth, so "
+                    "I'll close things out here. Hoshang has everything from our chat and will "
+                    "follow up with you personally, this conversation is now closed on my end."
+                )
+                updated_fields["incomplete"] = "notes_retry_cap"
+            else:
+                updated_fields["_notes_retry_count"] = notes_retries
+
+        just_qualified = new_state == "qualification_decision" and current_state != "qualification_decision"
 
         # Enforced in code, not left to the prompt — see ensure_bot_disclosure and
         # ensure_expectation_setting. Applied to the first outbound message of a conversation
