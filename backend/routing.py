@@ -114,6 +114,36 @@ IDENTITY_QUESTION_REPLY = (
 )
 
 
+# --- Explicit request for Hoshang's own contact details ---------------------------------
+#
+# A lead asking to reach Hoshang directly (not "connect me" — an actual "what's his email /
+# number") gets exactly one channel: his email, hoshangsheth@gmail.com. Never his phone or
+# WhatsApp — those stay reserved for outbound calls Hoshang chooses to make himself, not
+# inbound contact a stranger dials into unprompted. Narrow to "his/him", not any mention of
+# "email" or "number" — asking to confirm THEIR OWN contact_preference ("this number is
+# fine") must never match.
+_CONTACT_INFO_PATTERNS = (
+    r"\bhis (email|e-mail|number|phone|whatsapp|contact)\b",
+    r"\b(email|call|whatsapp|message|reach|contact) him directly\b",
+    r"\b(get|have) (his|hoshang'?s) (email|e-mail|number|phone|contact|whatsapp)\b",
+    r"\bhoshang'?s (email|e-mail|number|phone|contact|whatsapp)\b",
+    r"\bdoes he have an? email\b",
+    r"\bwhat'?s his (email|e-mail|number|phone|contact)\b",
+    r"\bhow (can|do) i (reach|contact|email|call) (him|hoshang)\b",
+)
+_CONTACT_INFO_RE = re.compile("|".join(_CONTACT_INFO_PATTERNS), re.I)
+
+
+def is_contact_info_request(text: str) -> bool:
+    return bool(text) and bool(_CONTACT_INFO_RE.search(text))
+
+
+CONTACT_INFO_REPLY = (
+    "Of course, you can reach him directly at hoshangsheth@gmail.com. I'll still pass along "
+    "everything from our conversation so he has full context."
+)
+
+
 BYPASS_REPLIES = {
     "warm": (
         "Thanks for reaching out! I'll pass this straight to Hoshang rather than ask you "

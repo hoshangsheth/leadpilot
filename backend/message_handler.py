@@ -24,7 +24,11 @@ from integrations.email_service import (
     send_processing_failure_email,
 )
 from observability.logger import log_transition
-from routing import detect_bypass, detect_source, BYPASS_REPLIES, is_identity_question, IDENTITY_QUESTION_REPLY
+from routing import (
+    detect_bypass, detect_source, BYPASS_REPLIES,
+    is_identity_question, IDENTITY_QUESTION_REPLY,
+    is_contact_info_request, CONTACT_INFO_REPLY,
+)
 
 logger = logging.getLogger("leadpilot.webhook")
 
@@ -140,15 +144,21 @@ def handle_message(msg: dict):
                 send_bypass_name_followup_email(wa_number, body_text)
                 return
 
-            # A direct "is this a bot?" is the one thing that still gets answered here.
-            # Everything else genuinely should stay silent — no Gemini call, no reopening a
-            # closed funnel — but a truthful yes/no about what they're talking to costs
-            # nothing and shouldn't require Hoshang to be online. On 2026-08-22 a real,
-            # already-qualified lead asked this twice and got silence both times.
-            reply_text = IDENTITY_QUESTION_REPLY if is_identity_question(body_text) else None
+            # A direct "is this a bot?" or an explicit ask for Hoshang's own contact details
+            # are the two things that still get answered here. Everything else genuinely
+            # should stay silent — no Gemini call, no reopening a closed funnel — but a
+            # truthful answer to either of these costs nothing and shouldn't require Hoshang
+            # to be online. On 2026-08-22 a real, already-qualified lead asked the identity
+            # question twice and got silence both times.
+            if is_identity_question(body_text):
+                reply_text = IDENTITY_QUESTION_REPLY
+            elif is_contact_info_request(body_text):
+                reply_text = CONTACT_INFO_REPLY
+            else:
+                reply_text = None
             logger.info(
                 "Lead %s has human_takeover set — %s",
-                lead.id, "answering identity question" if reply_text else "bot stays silent",
+                lead.id, f"answering ({reply_text[:30]}...)" if reply_text else "bot stays silent",
             )
             db.add(Message(
                 conversation_id=conversation.id, wa_message_id=wa_message_id, direction="in", text=body_text
