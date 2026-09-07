@@ -17,7 +17,12 @@ from db.models import Lead, Conversation, Message, Qualification
 from integrations.whatsapp_client import send_message
 from conversation_engine import process_message, MAX_MESSAGES, ensure_bot_disclosure, ensure_closing_thanks
 from scoring import score_lead
-from integrations.email_service import send_lead_notification_email, send_handoff_email, send_bypass_name_followup_email
+from integrations.email_service import (
+    send_lead_notification_email,
+    send_handoff_email,
+    send_bypass_name_followup_email,
+    send_processing_failure_email,
+)
 from observability.logger import log_transition
 from routing import detect_bypass, detect_source, BYPASS_REPLIES, is_identity_question, IDENTITY_QUESTION_REPLY
 
@@ -36,16 +41,26 @@ NOTES_RETRY_LIMIT = 3  # max times "anything else?" gets re-asked before a deter
 
 def process_payload(payload: dict):
     """Runs after the 200 ack — Meta's retry behavior only cares about the ack (Section 9a,
-    input vs. system failure classification), not this outcome."""
-    try:
-        entries = payload.get("entry", [])
-        for entry in entries:
-            for change in entry.get("changes", []):
-                value = change.get("value", {})
-                for msg in value.get("messages", []):
+    input vs. system failure classification), not this outcome.
+
+    Each message is handled and guarded independently: a payload can carry more than one
+    message, and until 2026-09-07 a single unhandled exception (e.g. a DB connection blip)
+    aborted the whole payload, silently dropping every other message in it too, with no reply
+    to any of them and no alert to Hoshang. Now one message's failure can't take the rest down,
+    and every failure — not just a caught one — triggers an alert with the actual wa_number so
+    the lead can be followed up with personally instead of vanishing into the Render logs.
+    """
+    entries = payload.get("entry", [])
+    for entry in entries:
+        for change in entry.get("changes", []):
+            value = change.get("value", {})
+            for msg in value.get("messages", []):
+                wa_number = msg.get("from", "unknown")
+                try:
                     handle_message(msg)
-    except Exception:
-        logger.exception("Unhandled failure processing webhook payload")
+                except Exception as exc:
+                    logger.exception("Unhandled failure processing message from=%s", wa_number)
+                    send_processing_failure_email(wa_number, f"{type(exc).__name__}: {exc}")
 
 
 def handle_message(msg: dict):

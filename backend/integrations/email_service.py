@@ -136,6 +136,41 @@ def send_bypass_name_followup_email(wa_number: str, reply_text: str) -> None:
         logger.exception("Failed to send bypass name-followup email for wa_number=%s", wa_number)
 
 
+def send_processing_failure_email(wa_number: str, error_summary: str) -> None:
+    """Fires when handle_message raises before a reply could be sent — a DB blip, an
+    unexpected exception, anything that isn't the normal Gemini-unreachable path (which
+    already degrades gracefully by staying silent for one turn and retrying next message).
+
+    This is the case those don't cover: something broke badly enough that no reply went out
+    and the conversation state may not even be consistent. Without this email, that lead gets
+    total silence and Hoshang has no way to know short of reading Render logs — the same
+    "silent failure" class as the unqualified-lead and bypass-handoff bugs already fixed here,
+    just triggered by infrastructure instead of conversation logic. Best-effort reply to the
+    lead is out of scope here (the failure may be the DB itself, which a reply can't route
+    around); the point is making sure Hoshang finds out and can follow up personally.
+    """
+    wa_number = html.escape(wa_number)
+    error_summary = html.escape(error_summary)
+    try:
+        resend.Emails.send({
+            "from": "LeadPilot <onboarding@resend.dev>",
+            "to": config.NOTIFY_EMAIL,
+            "subject": f"[ACTION NEEDED] Message processing failed — {wa_number}",
+            "html": f"""
+            <h2>A message could not be processed</h2>
+            <p style="margin:0 0 16px;padding:12px 14px;border-left:4px solid #b3261e;background:#fdecea;
+            color:#b3261e;font-weight:600;">No reply was sent for this message. The lead has
+            received nothing. Please follow up with them directly.</p>
+            <ul>
+                <li><strong>WhatsApp:</strong> {wa_number}</li>
+                <li><strong>Error:</strong> {error_summary}</li>
+            </ul>
+            """,
+        })
+    except Exception:
+        logger.exception("Failed to send processing-failure alert for wa_number=%s", wa_number)
+
+
 def send_lead_notification_email(wa_number: str, collected_fields: dict, score_result: dict) -> None:
     """Fires for every conversation that reaches qualification_decision — qualified or not.
 
