@@ -15,7 +15,10 @@ import config
 from db.db import SessionLocal
 from db.models import Lead, Conversation, Message, Qualification
 from integrations.whatsapp_client import send_message
-from conversation_engine import process_message, MAX_MESSAGES, ensure_bot_disclosure, ensure_closing_thanks
+from conversation_engine import (
+    process_message, MAX_MESSAGES,
+    ensure_bot_disclosure, ensure_expectation_setting, ensure_closing_thanks,
+)
 from scoring import score_lead
 from integrations.email_service import (
     send_lead_notification_email,
@@ -308,10 +311,12 @@ def handle_message(msg: dict):
         if current_state == "additional_notes" and new_state == "additional_notes":
             updated_fields["_notes_retry_count"] = notes_retries + 1
 
-        # Enforced in code, not left to the prompt — see ensure_bot_disclosure. Applied to the
-        # first outbound message of a conversation only; repeating it later would be noise.
+        # Enforced in code, not left to the prompt — see ensure_bot_disclosure and
+        # ensure_expectation_setting. Applied to the first outbound message of a conversation
+        # only; repeating either later would be noise.
         if message_count_before_this == 0:
             reply_text = ensure_bot_disclosure(reply_text)
+            reply_text = ensure_expectation_setting(reply_text)
 
         if is_returning_after_gap and current_state != "qualification_decision":
             reply_text = f"Welcome back! {reply_text}"

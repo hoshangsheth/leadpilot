@@ -105,6 +105,34 @@ def ensure_bot_disclosure(reply_text: str) -> str:
     return f"{_AI_DISCLOSURE} {reply_text}"
 
 
+_EXPECTATION_SETTING = (
+    "I'll ask a few quick questions, takes about 2 minutes, then he'll follow up with you "
+    "personally within 24 hours."
+)
+
+
+def ensure_expectation_setting(reply_text: str) -> str:
+    """Guarantee the opening message sets the "few quick questions, ~2 minutes, 24-hour
+    personal follow-up" expectation, exactly like ensure_bot_disclosure does for the AI
+    disclosure.
+
+    The greeting prompt has always asked for this (see states/greeting.py), and on 2026-09-07
+    a real recorded run ("Hi" -> "I'm Hoshang's AI assistant. Hi there! What kind of process
+    or workflow are you looking to automate?") still dropped it entirely, same failure mode
+    as the bot-disclosure incident this mirrors: the model resolves the tension with brevity
+    in favour of brevity when the incoming message gives it little to react to. Whether a
+    lead knows how many questions are coming and when they'll hear back is not something the
+    model gets to trade off against tone, so — same reasoning as the AI disclosure, the
+    Calendly link, and every other enforceable fact in this file — it's guaranteed in code.
+
+    Checks for "24 hour" as the anchor phrase: distinctive enough not to appear by accident,
+    and present in every acceptable phrasing of this expectation (see greeting.py FEW_SHOT).
+    """
+    if "24 hour" in reply_text.lower():
+        return reply_text
+    return f"{reply_text} {_EXPECTATION_SETTING}"
+
+
 _CLOSING_THANKS = "Thank you for your time!"
 
 
