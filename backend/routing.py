@@ -159,8 +159,12 @@ def detect_source(first_message: str) -> str:
     """Where this lead came from, read off their opening message.
 
     The site's WhatsApp links pre-fill a different message per entry point, so this is free
-    and exact. Anything unrecognized was typed by hand, which in practice means a referral,
-    a saved contact, or outreach — all of which are worth distinguishing from site traffic.
+    and exact. Anything unrecognized was typed by hand — could be a referral, a saved
+    contact, or outreach, but typing a message by hand is not itself evidence of a referral.
+    On 2026-09-07 a real lead (Meera Kapoor) typed "Hi" with no connection to Hoshang at all
+    and was labeled "Direct / referral (typed manually)" — the source is worth flagging as
+    unconfirmed, but must NOT claim "referral" unless detect_bypass's _WARM_RE actually
+    matched an explicit referral/personal-connection claim (see _WARM_PATTERNS above).
     """
     if not first_message:
         return "Unknown"
@@ -168,4 +172,4 @@ def detect_source(first_message: str) -> str:
         match = pattern.search(first_message)
         if match:
             return label.format(match.group(1).strip()) if "{}" in label else label
-    return "Direct / referral (typed manually)"
+    return "Direct message (typed manually, source unconfirmed)"

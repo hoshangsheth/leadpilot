@@ -193,6 +193,7 @@ def send_lead_notification_email(wa_number: str, collected_fields: dict, score_r
     # is required, not optional — an unescaped field is a real HTML/script injection vector
     # into an email that opens in Hoshang's own inbox.
     name = html.escape(collected_fields.get("contact_name", "Unknown"))
+    company_name = html.escape(collected_fields.get("company_name", "-"))
     service_type = html.escape(collected_fields.get("service_type", "unclear"))
     requirement = html.escape(collected_fields.get("requirement_summary", "-"))
     business_size = html.escape(collected_fields.get("business_size", "-"))
@@ -241,6 +242,7 @@ def send_lead_notification_email(wa_number: str, collected_fields: dict, score_r
     <p><strong>Score:</strong> {score_result['score']}/100</p>
     <ul>
         <li><strong>Name:</strong> {name}</li>
+        <li><strong>Company:</strong> {company_name}</li>
         <li><strong>WhatsApp:</strong> {wa_number}</li>
         <li><strong>Source:</strong> {lead_source}</li>
         <li><strong>Service type:</strong> {service_type}</li>

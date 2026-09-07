@@ -44,6 +44,20 @@ PAYMENT_TERMS = {
         "Fixed price agreed before any work begins, no hourly billing, no monthly retainer. "
         "Anything outside agreed scope is quoted separately and only starts once approved."
     ),
+    # A real lead (Meera Kapoor, 2026-09-07) asked "so the costing of all this would be
+    # handled by him?" and the bot answered "Yes, exactly" — flatly wrong. Hoshang's fixed
+    # price covers building and delivering the system. It does NOT cover what the system
+    # costs to RUN afterward: LLM/API usage fees, hosting, any third-party subscription the
+    # system depends on. The client owns the system on handover (see ALWAYS_INCLUDED), so
+    # those running costs are the client's own, paid directly to the provider (e.g. OpenAI/
+    # Google), not to Hoshang and not folded into his price. This must never be answered with
+    # a bare "yes" — it needs the distinction spelled out every time.
+    "running_costs": (
+        "Ongoing running costs after handover (LLM/API usage, hosting, any third-party "
+        "service the system uses) are billed directly to the client by those providers, "
+        "separate from Hoshang's fixed build price — because the client owns the system "
+        "outright, these are the client's own operating costs, not a fee to Hoshang."
+    ),
 }
 
 ALWAYS_INCLUDED = [
@@ -128,7 +142,17 @@ Flagship: {FLAGSHIP['name']} — {FLAGSHIP['one_liner']}. Overall range {FLAGSHI
 Four applications this gets pointed at:
 {apps}
 Payment: {PAYMENT_TERMS['structure']}. {PAYMENT_TERMS['notes']}
+Running costs: {PAYMENT_TERMS['running_costs']}
 Always included: {included}.
+
+CRITICAL RULE ON COSTING QUESTIONS. If a lead asks anything like "is the cost/API cost/
+running cost handled by Hoshang", "do I need to pay for the software/APIs separately", or
+"is that included in the price" — never answer with a bare "yes" or "no". Always give both
+halves: Hoshang's fixed price covers building and delivering the system; ongoing running
+costs (LLM/API usage, hosting, any third-party service it depends on) are billed directly
+to the client by those providers after handover, because the client owns the system
+outright. Getting this wrong (answering a flat "yes, he handles it") is a real mistake that
+has happened before and must not happen again.
 Full details: {LINKS['services']} and {LINKS['pricing']}.
 Past work and case studies: {LINKS['work']}. Interactive demos of these workflows: {LINKS['demo']}.
 
