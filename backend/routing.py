@@ -144,15 +144,21 @@ CONTACT_INFO_REPLY = (
 )
 
 
+# Both open by identifying as the assistant. A bypassed lead skips the funnel, which is also
+# the only place the AI disclosure was ever added (message_handler applies the opening frame
+# on the funnel path only) — so until 2026-09-08 a referral or a "let me talk to a human"
+# request was answered by a bot that never said it was one. Whether someone knows what
+# they're talking to isn't conditional on which branch their message took.
 BYPASS_REPLIES = {
     "warm": (
-        "Thanks for reaching out! I'll pass this straight to Hoshang rather than ask you "
-        "the usual questions, he'll message you personally shortly. What's your name, so "
-        "he knows who to expect?"
+        "Thanks for reaching out! I'm Hoshang's AI assistant, and I'll pass this straight to "
+        "him rather than ask you the usual questions, he'll message you personally shortly. "
+        "What's your name, so he knows who to expect?"
     ),
     "human_request": (
-        "Of course, I'll let Hoshang know right away and he'll get back to you personally. "
-        "Thanks for your patience! What's your name, so he knows who's asking?"
+        "Of course. I'm Hoshang's AI assistant, and I'll let him know right away so he can "
+        "get back to you personally. Thanks for your patience! What's your name, so he knows "
+        "who's asking?"
     ),
 }
 # A bypassed lead's handoff email previously carried nothing but a raw phone number — no way

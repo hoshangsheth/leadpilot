@@ -25,6 +25,7 @@ from integrations.email_service import (
     send_handoff_email,
     send_bypass_name_followup_email,
     send_processing_failure_email,
+    send_undelivered_reply_email,
 )
 from observability.logger import log_transition
 from routing import (
@@ -77,6 +78,96 @@ def process_payload(payload: dict):
                     send_processing_failure_email(wa_number, f"{type(exc).__name__}: {exc}")
 
 
+def conversation_fields_flag(collected_fields: dict, key: str) -> bool:
+    """Internal, underscore-prefixed bookkeeping flags are stored alongside real lead facts
+    in collected_fields (see _notes_retry_count, _awaiting_bypass_name). They are never
+    advertised to Gemini and never read by the notification email, so they can't leak."""
+    return bool(collected_fields.get(key))
+
+
+NON_TEXT_REPLY = (
+    "I'm Hoshang's AI assistant, and I can only read text messages at the moment, so I "
+    "haven't been able to open that. Could you type it out instead? If it's a document or a "
+    "screenshot you'd like Hoshang to look at, just say so and I'll flag it for him to ask "
+    "you for directly."
+)
+
+# Placeholder stored for a non-text inbound message. The row has to exist so Meta's retry of
+# the same media message is caught by the duplicate check (otherwise the lead gets the
+# redirect two or three times), and so the transcript Hoshang reads doesn't have a silent
+# hole where they sent something.
+_NON_TEXT_PLACEHOLDER = "[{msg_type} message — not readable by the assistant]"
+
+
+def _handle_non_text_message(wa_message_id: str, wa_number: str, msg_type: str):
+    """Answer a voice note / image / document instead of ignoring it.
+
+    Until 2026-09-08 these were dropped with a log line and nothing else: the lead got total
+    silence. That is worst precisely where it is most likely to happen — a document
+    processing prospect's first instinct is to send a sample invoice, and voice notes are
+    completely normal on WhatsApp here. A lead who sends one and hears nothing back assumes
+    the number is dead.
+
+    No Gemini call: the reply is fixed, so an unsupported attachment costs nothing and can't
+    be used to run up spend.
+    """
+    db = SessionLocal()
+    try:
+        db.execute(sql_text("SELECT pg_advisory_xact_lock(hashtext(:wa_number))"), {"wa_number": wa_number})
+
+        if db.query(Message).filter_by(wa_message_id=wa_message_id).first() is not None:
+            db.rollback()
+            logger.info("Duplicate non-text message_id=%s, skipping", wa_message_id)
+            return
+
+        lead = db.query(Lead).filter_by(wa_number=wa_number).first()
+        if lead is None:
+            lead = Lead(wa_number=wa_number)
+            db.add(lead)
+            db.flush()
+
+        conversation = (
+            db.query(Conversation)
+            .filter_by(lead_id=lead.id)
+            .order_by(Conversation.id.desc())
+            .first()
+        )
+        if conversation is None:
+            conversation = Conversation(lead_id=lead.id)
+            db.add(conversation)
+            db.flush()
+
+        now = datetime.now(timezone.utc)
+        db.add(Message(
+            conversation_id=conversation.id,
+            wa_message_id=wa_message_id,
+            direction="in",
+            text=_NON_TEXT_PLACEHOLDER.format(msg_type=msg_type),
+        ))
+        conversation.last_inbound_at = now
+
+        # Once the funnel has closed and Hoshang has taken over, the bot stays quiet here for
+        # the same reason it stays quiet for ordinary text — see the human_takeover branch in
+        # handle_message.
+        if lead.human_takeover:
+            db.commit()
+            logger.info("Non-text message from=%s during human_takeover — logged, no reply", wa_number)
+            return
+
+        db.add(Message(
+            conversation_id=conversation.id,
+            wa_message_id=f"{wa_message_id}-reply",
+            direction="out",
+            text=NON_TEXT_REPLY,
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+    logger.info("Sent text-only redirect for type=%s from=%s", msg_type, wa_number)
+    _send_reply(wa_number, NON_TEXT_REPLY, now)
+
+
 def handle_message(msg: dict):
     """Persists one inbound WhatsApp message, advances the conversation state machine, and
     sends the reply (plus qualification email, if this turn just qualified the lead).
@@ -93,8 +184,7 @@ def handle_message(msg: dict):
     msg_type = msg.get("type")
 
     if msg_type != "text":
-        logger.info("Ignoring unsupported message type=%s from=%s", msg_type, wa_number)
-        # Real "text only for now" redirect reply is a Stage 5 hardening item.
+        _handle_non_text_message(wa_message_id, wa_number, msg_type)
         return
 
     if not body_text.strip():
@@ -330,10 +420,15 @@ def handle_message(msg: dict):
         just_qualified = new_state == "qualification_decision" and current_state != "qualification_decision"
 
         # The whole introduction (greeting, AI disclosure, what happens next) is owned by
-        # code, not the prompt — see ensure_opening_frame. First outbound message only;
-        # repeating it later would be noise.
-        if message_count_before_this == 0:
+        # code, not the prompt — see ensure_opening_frame. Applied once per conversation.
+        #
+        # Keyed on a flag rather than "is this the first message", because it isn't always:
+        # a lead whose opening move is a voice note or a photo of an invoice has already had
+        # one exchange (the text-only redirect) by the time they type anything, and would
+        # otherwise never be introduced to properly.
+        if not conversation_fields_flag(collected_fields, "_opened"):
             reply_text = ensure_opening_frame(reply_text)
+            updated_fields["_opened"] = "1"
 
         if is_returning_after_gap and current_state != "qualification_decision":
             reply_text = f"Welcome back! {reply_text}"
@@ -382,15 +477,41 @@ def handle_message(msg: dict):
     log_transition(lead_id, current_state, new_state, gemini_ms, send_outcome)
 
 
+SEND_RETRY_DELAYS_SECS = (1, 3)
+
+
 def _send_reply(wa_number: str, reply_text: str, last_inbound_at) -> str:
     """Sends the WhatsApp reply after the DB transaction (and advisory lock) has already
-    released — no reason to hold either open for a network call that doesn't touch the DB."""
+    released — no reason to hold either open for a network call that doesn't touch the DB.
+
+    Retries a couple of times, then alerts. Until 2026-09-08 a failed send was logged and
+    nothing else: the conversation state had already been committed, so the bot believed it
+    had replied, the lead saw nothing at all, and the only trace was a line in the Render
+    logs nobody was watching. The lead's next message would then arrive against a state that
+    had silently moved on without them. Most failures here are a transient blip on Meta's
+    side or a momentary network drop, which a retry fixes; anything that survives all three
+    attempts is something Hoshang needs to know about while the lead is still warm.
+    """
+    last_error = None
+    for attempt, delay in enumerate((0, *SEND_RETRY_DELAYS_SECS), start=1):
+        if delay:
+            time.sleep(delay)
+        try:
+            asyncio.run(send_message(to=wa_number, text=reply_text, last_inbound_at=last_inbound_at))
+            if attempt > 1:
+                logger.info("Reply to %s sent on attempt %d", wa_number, attempt)
+            return "sent"
+        except Exception as exc:
+            last_error = exc
+            logger.warning("Send attempt %d to %s failed: %s", attempt, wa_number, exc)
+
+    logger.error("All send attempts to %s failed", wa_number, exc_info=last_error)
     try:
-        asyncio.run(send_message(to=wa_number, text=reply_text, last_inbound_at=last_inbound_at))
-        return "sent"
+        send_undelivered_reply_email(wa_number, reply_text, f"{type(last_error).__name__}: {last_error}")
     except Exception:
-        logger.exception("Failed to send reply to %s", wa_number)
-        return "send_failed"
+        # An alert that fails must not take down the turn that was otherwise fine.
+        logger.exception("Failed to send undelivered-reply alert for %s", wa_number)
+    return "send_failed"
 
 
 def _upsert_qualification(db, conversation_id: int, result: dict):

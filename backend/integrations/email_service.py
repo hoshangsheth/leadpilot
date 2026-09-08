@@ -171,6 +171,76 @@ def send_processing_failure_email(wa_number: str, error_summary: str) -> None:
         logger.exception("Failed to send processing-failure alert for wa_number=%s", wa_number)
 
 
+def send_undelivered_reply_email(wa_number: str, reply_text: str, error_summary: str) -> None:
+    """Fires when a reply was generated successfully but could not be delivered to WhatsApp
+    after every retry.
+
+    Distinct from send_processing_failure_email: nothing went wrong with the conversation
+    itself, so the state has already advanced and the transcript records a reply the lead
+    never actually received. That is the dangerous part — from the lead's side the number
+    simply went quiet mid-conversation, and their next message will land against a state that
+    moved on without them. The undelivered text is included so Hoshang can just paste it to
+    them himself and pick the conversation up where it stopped.
+    """
+    wa_number = html.escape(wa_number)
+    error_summary = html.escape(error_summary)
+    reply_text = html.escape(reply_text)
+    try:
+        resend.Emails.send({
+            "from": "LeadPilot <onboarding@resend.dev>",
+            "to": config.NOTIFY_EMAIL,
+            "subject": f"[ACTION NEEDED] Reply not delivered — {wa_number}",
+            "html": f"""
+            <h2>A reply could not be delivered</h2>
+            <p style="margin:0 0 16px;padding:12px 14px;border-left:4px solid #b3261e;background:#fdecea;
+            color:#b3261e;font-weight:600;">The conversation advanced but this message never
+            reached the lead. From their side the chat has gone silent. Send it to them
+            yourself to pick it back up.</p>
+            <ul>
+                <li><strong>WhatsApp:</strong> {wa_number}</li>
+                <li><strong>Error:</strong> {error_summary}</li>
+            </ul>
+            <p><strong>Undelivered message:</strong></p>
+            <blockquote style="margin:0;padding:12px 14px;background:#f3f4f6;border-left:4px solid #57606a;
+            white-space:pre-wrap;">{reply_text}</blockquote>
+            """,
+        })
+    except Exception:
+        logger.exception("Failed to send undelivered-reply alert for wa_number=%s", wa_number)
+
+
+def send_stranded_messages_email(stranded: list[dict]) -> None:
+    """Fires at startup when a conversation's last word was the lead's and no reply followed.
+
+    In practice this means the process died between acking Meta and replying — a deploy or a
+    restart — which nothing else can catch, because no exception was ever raised. See
+    recovery.py for why an alert is the chosen fix rather than a durable queue.
+    """
+    rows = "".join(
+        f"<li><strong>{html.escape(item['wa_number'])}</strong> — "
+        f"{html.escape(str(item['received_at']))}<br>"
+        f"<span style='color:#40464d;'>{html.escape(item['text'])}</span></li>"
+        for item in stranded
+    )
+    count = len(stranded)
+    try:
+        resend.Emails.send({
+            "from": "LeadPilot <onboarding@resend.dev>",
+            "to": config.NOTIFY_EMAIL,
+            "subject": f"[ACTION NEEDED] {count} message(s) awaiting a reply after restart",
+            "html": f"""
+            <h2>{count} conversation(s) never got a reply</h2>
+            <p style="margin:0 0 16px;padding:12px 14px;border-left:4px solid #b3261e;background:#fdecea;
+            color:#b3261e;font-weight:600;">These leads sent a message and heard nothing back,
+            most likely because the service restarted mid-processing. Please reply to them
+            directly.</p>
+            <ul>{rows}</ul>
+            """,
+        })
+    except Exception:
+        logger.exception("Failed to send stranded-messages alert")
+
+
 def send_lead_notification_email(wa_number: str, collected_fields: dict, score_result: dict) -> None:
     """Fires for every conversation that reaches qualification_decision — qualified or not.
 

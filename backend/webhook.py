@@ -23,7 +23,10 @@ async def verify_webhook(request: Request):
     token = params.get("hub.verify_token")
     challenge = params.get("hub.challenge")
 
-    if mode == "subscribe" and token == config.VERIFY_TOKEN:
+    # compare_digest, not ==, for the same reason the POST handler's signature check uses it:
+    # a plain string comparison short-circuits on the first differing byte and leaks the
+    # token's prefix through response timing. Cheap to do correctly.
+    if mode == "subscribe" and token and hmac.compare_digest(token, config.VERIFY_TOKEN):
         return Response(content=challenge, media_type="text/plain")
     return Response(status_code=403)
 

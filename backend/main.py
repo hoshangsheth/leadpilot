@@ -6,6 +6,7 @@ import logging
 
 from fastapi import FastAPI
 from db.db import init_db
+from recovery import sweep_stranded_messages
 from webhook import router as webhook_router
 
 logging.basicConfig(
@@ -20,6 +21,10 @@ app.include_router(webhook_router)
 @app.on_event("startup")
 def on_startup():
     init_db()
+    # A message being processed when the service restarted was acked to Meta and will never
+    # be resent, so nothing else can recover it — see recovery.py. Runs after init_db so the
+    # tables are guaranteed to exist on a first boot, and can never block startup itself.
+    sweep_stranded_messages()
 
 
 @app.get("/health")

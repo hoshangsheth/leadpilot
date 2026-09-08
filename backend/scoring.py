@@ -29,7 +29,40 @@ MIN_DELIVERY_WEEKS = 5
 
 # The practice's own published range, used to detect a budget that is really just an echo of
 # the number we anchored the lead to rather than a figure they arrived at themselves.
-_PUBLISHED_RANGE_MARKERS = ("35", "90")
+_PUBLISHED_RANGE_LOW_INR = 35_000
+_PUBLISHED_RANGE_HIGH_INR = 90_000
+
+
+def _echoes_published_range(raw: str, parsed_amount: int | None) -> bool:
+    """True when the lead's "budget" is really just our own published range read back.
+
+    This used to test whether the digit-string contained both "35" and "90" anywhere, which
+    is true of plenty of genuine figures — ₹90,350 and ₹1,35,900 both matched, and both got
+    marked down as if the lead had named no real number of their own. Now it parses both
+    ends and checks they are actually our range, so a real budget that happens to share a
+    couple of digits with it is scored on its merits.
+    """
+    ends = []
+    for number, multiplier in _AMOUNT_RE.findall(raw.replace(",", "").lower()):
+        try:
+            value = float(number)
+        except ValueError:
+            continue
+        if multiplier:
+            for name, factor in _MULTIPLIERS:
+                if multiplier == name:
+                    value *= factor
+                    break
+        elif value < _BARE_NUMBER_FLOOR:
+            continue
+        ends.append(int(value))
+
+    if _PUBLISHED_RANGE_LOW_INR in ends and _PUBLISHED_RANGE_HIGH_INR in ends:
+        return True
+    # "up to 90k" / "around 35k" on its own is still our number, not theirs.
+    return len(ends) == 1 and parsed_amount in (
+        _PUBLISHED_RANGE_LOW_INR, _PUBLISHED_RANGE_HIGH_INR
+    )
 
 _SCOPE_POINTS = {
     "in_scope": 25,
@@ -196,8 +229,7 @@ def _budget_points(collected_fields: dict) -> int:
     if amount is not None and amount < MIN_PROJECT_BUDGET_INR:
         return 0
 
-    digits_only = "".join(ch for ch in raw if ch.isdigit())
-    if all(marker in digits_only for marker in _PUBLISHED_RANGE_MARKERS):
+    if _echoes_published_range(raw, amount):
         return 10
     return 20
 
@@ -237,6 +269,19 @@ def _timeline_points(collected_fields: dict) -> int:
     return 7
 
 
+def _humanise_weeks(weeks: float) -> str:
+    """"~4.3 week(s)" is accurate and reads like a machine talking. Hoshang reads these
+    blockers on his phone before deciding whether to take a call; they should sound like a
+    note from a colleague."""
+    if weeks <= 1:
+        return "under a week"
+    if weeks < 4:
+        return f"about {round(weeks)} weeks"
+    if weeks < 4.8:
+        return "about a month"
+    return f"about {round(weeks)} weeks"
+
+
 def _blockers(collected_fields: dict) -> list[str]:
     """Hard commercial mismatches, stated plainly for the notification email.
 
@@ -254,9 +299,9 @@ def _blockers(collected_fields: dict) -> list[str]:
 
     weeks = parse_timeline_weeks(collected_fields.get("timeline_expectation") or "")
     if weeks is not None and weeks < MIN_DELIVERY_WEEKS:
-        rounded = int(weeks) if float(weeks).is_integer() else round(weeks, 1)
         blockers.append(
-            f"Wants delivery in ~{rounded} week(s); typical build is {MIN_DELIVERY_WEEKS}-12 weeks"
+            f"Wants delivery in {_humanise_weeks(weeks)}; typical build is "
+            f"{MIN_DELIVERY_WEEKS}-12 weeks"
         )
 
     if _canonical_scope(collected_fields) == "out_of_scope":
@@ -268,8 +313,16 @@ def _blockers(collected_fields: dict) -> list[str]:
 def score_lead(collected_fields: dict) -> dict:
     breakdown = {}
 
+    # A missing service_type is not the same as a captured-and-clear one: an empty string
+    # used to pass this check (it simply isn't the literal "unclear"), so a lead whose
+    # service_type the model never emitted scored the same full 25 as a perfectly classified
+    # one. Requires an actual value now, and that the value isn't an explicit non-answer.
     service_type = (collected_fields.get("service_type") or "").strip().lower()
-    has_clear_pain = bool(collected_fields.get("requirement_summary")) and service_type != "unclear"
+    has_clear_pain = (
+        bool(collected_fields.get("requirement_summary"))
+        and bool(service_type)
+        and service_type not in ("unclear", "unknown", "n/a", "none")
+    )
     breakdown["clear_pain_point"] = 25 if has_clear_pain else 0
 
     breakdown["scope_fit"] = _scope_points(collected_fields)
