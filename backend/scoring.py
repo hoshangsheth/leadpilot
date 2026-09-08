@@ -69,6 +69,10 @@ _MULTIPLIERS = (
 )
 _AMOUNT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(crore|cr|lakhs|lakh|lacs|lac|thousand|k)?", re.I)
 
+# Below this, a number with no magnitude attached ("15", "around 50") is shorthand, not a
+# rupee figure — see parse_budget_inr. A bare "50000" is unambiguous and still trusted.
+_BARE_NUMBER_FLOOR = 1_000
+
 _WORD_NUMBERS = {"a": 1, "an": 1, "one": 1, "two": 2, "couple": 2, "three": 3, "few": 3,
                  "four": 4, "five": 5, "six": 6}
 _DURATION_RE = re.compile(
@@ -109,12 +113,19 @@ def parse_budget_inr(raw: str) -> int | None:
                 if multiplier == name:
                     value *= factor
                     break
+        elif value < _BARE_NUMBER_FLOOR:
+            # A bare "15" or "around 50" means 15k/50k to every Indian SMB owner who types
+            # it, but reading it literally is worse than not reading it at all: until
+            # 2026-09-08 this returned ₹50 for "around 50", scored the lead 0 for budget,
+            # and put "Budget ₹50 is below the ₹35,000 floor" in Hoshang's notification.
+            # Guessing the magnitude would be worse still (this file's whole point is being
+            # defensible), so an ambiguous figure is simply not treated as a figure — it
+            # falls through to "not disclosed", which is the honest reading.
+            continue
         amounts.append(value)
 
     if not amounts:
         return None
-    # A bare "15" almost certainly means 15k in this context, but guessing would be worse
-    # than leaving it — only trust explicit magnitudes.
     return int(max(amounts))
 
 

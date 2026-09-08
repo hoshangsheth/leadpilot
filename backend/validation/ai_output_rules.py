@@ -31,6 +31,22 @@ STATE_MODULES = {
 # never backward, and never to a state outside it.
 STATE_ORDER = list(STATE_MODULES.keys())
 
+# Every key that represents something the LEAD actually told us, as opposed to metadata the
+# system wrote about them. `lead_source` is the one that matters: routing.detect_source
+# stamps it onto collected_fields before the engine ever runs, so "has this conversation
+# produced anything yet?" cannot be answered with a bare truthiness check on the dict.
+# Computed from the state modules rather than hardcoded, so a new field can't silently fall
+# outside it. Kept local to avoid importing conversation_engine, which imports this module.
+_REAL_FIELD_KEYS = (
+    {f for m in STATE_MODULES.values() for f in m.REQUIRED_FIELDS}
+    | {f for m in STATE_MODULES.values() for f in getattr(m, "OPTIONAL_FIELDS", [])}
+    | {"additional_notes"}
+)
+
+
+def _has_real_answers(collected_fields: dict) -> bool:
+    return any(collected_fields.get(key) for key in _REAL_FIELD_KEYS)
+
 
 def _fields_satisfied(state_name: str, merged_fields: dict) -> bool:
     module = STATE_MODULES[state_name]
@@ -65,12 +81,20 @@ def resolve_effective_state(current_state: str, collected_fields: dict) -> str:
     definitionally done the moment ANY other field exists, so it auto-advances once the
     conversation has produced anything at all. Every other vacuous state stays gated behind
     an actual model-driven transition in validate_turn_result.
+
+    "Anything at all" means anything the LEAD said — see _REAL_FIELD_KEYS. This used to be a
+    bare `if collected_fields:`, which was true on the very first message of every single
+    conversation, because message_handler stamps `lead_source` on before the engine runs.
+    The effect (found 2026-09-08): `greeting` was skipped for every real inbound lead, the
+    opening question was always generated from `service_requirement`'s prompt instead, and
+    everything greeting.py said about how to open a conversation was dead code in production
+    while appearing to work perfectly in any test that passed empty fields.
     """
     if current_state not in STATE_ORDER:
         return current_state
     idx = STATE_ORDER.index(current_state)
 
-    if idx == 0 and collected_fields:
+    if idx == 0 and _has_real_answers(collected_fields):
         idx = 1
 
     while idx < len(STATE_ORDER) - 1:
