@@ -12,7 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from routing import detect_bypass, detect_source, BYPASS_REPLIES, is_identity_question  # noqa: E402
-from conversation_engine import ensure_bot_disclosure  # noqa: E402
+from conversation_engine import ensure_opening_frame  # noqa: E402
 
 
 class TestIdentityQuestion:
@@ -53,22 +53,45 @@ class TestIdentityQuestion:
             assert not is_identity_question(message), message
 
 
-class TestBotDisclosure:
-    """2026-08-22: a bare "hi" produced an opener with no bot disclosure at all — the model
-    traded it away against the general brevity rule. Whether someone knows they are talking
-    to a bot is not a style choice, so it is enforced in code."""
+class TestOpeningFrame:
+    """2026-08-22: a bare "hi" produced an opener with no bot disclosure at all. 2026-09-08:
+    the two separate guards that fixed that (one prepending the disclosure, one appending the
+    expectation-setting) produced a jumbled opener — disclosure before the greeting, "here's
+    what happens next" stranded after the question. The frame is now composed in one place,
+    in a fixed order."""
 
-    def test_missing_disclosure_is_injected(self):
-        reply = "Hi there! What process are you looking to automate?"
-        assert "ai assistant" in ensure_bot_disclosure(reply).lower()
+    def test_frame_is_prepended_to_a_bare_question(self):
+        out = ensure_opening_frame("What process are you looking to automate?")
+        assert out.startswith("Hi there, I'm Hoshang's AI assistant.")
+        assert out.endswith("What process are you looking to automate?")
 
-    def test_existing_disclosure_is_left_alone(self):
-        reply = "Hi there, I'm Hoshang's AI assistant. What do you want to automate?"
-        assert ensure_bot_disclosure(reply) == reply
+    def test_all_four_elements_present(self):
+        out = ensure_opening_frame("What do you want to automate?").lower()
+        for fragment in ["hi there", "ai assistant", "2 minutes", "24 hours"]:
+            assert fragment in out
 
-    def test_detection_is_case_insensitive(self):
-        reply = "Hi, I am Hoshang's ai assistant here to help."
-        assert ensure_bot_disclosure(reply) == reply
+    def test_order_is_greeting_disclosure_expectation_then_question(self):
+        out = ensure_opening_frame("What do you want to automate?").lower()
+        assert out.index("hi there") < out.index("ai assistant") < out.index("24 hours") \
+            < out.index("what do you want to automate")
+
+    def test_model_written_frame_is_not_duplicated(self):
+        """The exact jumble from the 2026-09-08 live test: the model introduced itself and
+        set expectations on its own. Those fragments get stripped, not repeated."""
+        reply = (
+            "I'm Hoshang's AI assistant. Hi there! What kind of business process or workflow "
+            "are you looking to automate? I'll ask a few quick questions, takes about 2 "
+            "minutes, then he'll follow up with you personally within 24 hours."
+        )
+        out = ensure_opening_frame(reply)
+        assert out.lower().count("ai assistant") == 1
+        assert out.lower().count("24 hours") == 1
+        assert out.startswith("Hi there, I'm Hoshang's AI assistant.")
+        assert out.rstrip().endswith("automate?")
+
+    def test_frame_only_reply_still_asks_something(self):
+        out = ensure_opening_frame("I'm Hoshang's AI assistant.")
+        assert out.rstrip().endswith("?")
 
 
 class TestWarmContactBypass:

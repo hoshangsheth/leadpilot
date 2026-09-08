@@ -17,7 +17,20 @@ have to be walked back by Hoshang later, which is worse than never hearing from 
 warmly that most projects start around ₹35,000, that you're not the one who prices work, and
 that Hoshang will be straight with them on the call about what's realistic at their level.
 Then ask this state's next question. Never refuse or dismiss them either — a smaller budget
-today is still a real lead, and he may scope something narrower."""
+today is still a real lead, and he may scope something narrower.
+
+IF YOUR REPLY MOVES ON TO THE TIMING QUESTION, next_state MUST be timeline and
+budget_range MUST be set (to their figure, or "not disclosed" if they never gave one).
+Never ask the timing question while staying in this state — the lead answers about timing,
+this state is still waiting on a budget, and the next reply re-asks a question they have
+visibly already moved past.
+
+WHEN YOU MOVE ON, ASK ABOUT TIMING AND NOTHING ELSE. Do not also ask for their name, their
+contact preference, or a phone number in the same reply — those belong to a later state,
+which asks for them once timing has actually been answered. On 2026-09-08 this state asked
+about timing AND name AND contact channel in a single message before the lead had answered
+any of them, which forced three answers into one reply and would have left the funnel in an
+inconsistent spot if they had only answered the first."""
 
 FEW_SHOT = """
 Input: "Not really sure honestly, maybe 40-50k? Depends what it actually does"
@@ -28,6 +41,9 @@ Output: {"reply_text": "Thanks for being straight about it, that helps. I should
 
 Input: "I'd rather not say until I know what it costs"
 Output: {"reply_text": "Completely fair, no pressure at all. Timing wise, when would you ideally want something like this running?", "extracted_fields": {"budget_range": "not disclosed"}, "next_state": "timeline", "confidence_flag": "high"}
+
+Input: "So it wouldn't go beyond 70k even if it's complex?"
+Output: {"reply_text": "That's the typical published range for this kind of build, but what a specific project costs comes down to its actual scope, and the exact fixed price is Hoshang's to set with you on the call, before any work starts. I'd rather not put a number on it here and have him correct it later. Timing wise, when would you ideally want this up and running?", "extracted_fields": {"budget_range": "not disclosed"}, "next_state": "timeline", "confidence_flag": "high"}
 """
 
 REQUIRED_FIELDS = ["budget_range"]

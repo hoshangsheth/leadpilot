@@ -17,7 +17,7 @@ from db.models import Lead, Conversation, Message, Qualification
 from integrations.whatsapp_client import send_message
 from conversation_engine import (
     process_message, MAX_MESSAGES,
-    ensure_bot_disclosure, ensure_expectation_setting, ensure_closing_thanks,
+    ensure_opening_frame, ensure_closing_thanks,
 )
 from scoring import score_lead
 from integrations.email_service import (
@@ -39,7 +39,14 @@ WELCOME_BACK_GAP_HOURS = 6
 MAX_TEXT_LENGTH = 2000  # a legitimate WhatsApp reply is nowhere near this; bounds worst-case
 # Gemini token cost per message and blocks unbounded text as a cheap abuse/DoS-via-cost vector.
 
-NOTES_RETRY_LIMIT = 3  # max times "anything else?" gets re-asked before a deterministic close.
+# Max CHATTER rounds — small talk, filler, repeats — before "anything else?" stops being
+# re-asked and the conversation closes deterministically. Rounds where the lead asked a
+# genuine question do NOT count (see states/additional_notes.py notes_turn_kind): a serious
+# buyer asking about cancellation terms, ownership, or running costs is doing exactly what
+# this state exists for, and cutting them off for it costs a real lead. Raised 3 -> 6 on
+# 2026-09-08 alongside that change, since the old limit was low enough that three ordinary
+# questions could reach it on their own.
+NOTES_RETRY_LIMIT = 6
 # _notes_retry_count is internal bookkeeping, not a real lead fact — deliberately never added
 # to conversation_engine.ALL_FIELD_KEYS (Gemini is never told this key exists and can't extract
 # or corrupt it) and never read by email_service (it isn't in that file's field allowlist), so
@@ -299,14 +306,22 @@ def handle_message(msg: dict):
         # tripped the same counter as actual stalling, and the very next message — a real
         # "that's all thanks" — was swallowed by the deterministic force-close before Gemini
         # ever saw it.
+        #
+        # Only CHATTER rounds count. A round the model classified as a genuine question
+        # (notes_turn_kind, see states/additional_notes.py) leaves the counter untouched, so
+        # a serious buyer working through cancellation terms, ownership, and running costs is
+        # never cut off for asking. A missing/unrecognised value counts as substantive —
+        # the safe direction, since MAX_MESSAGES above is the real backstop and a dropped
+        # bookkeeping field must never be what closes a live conversation.
         if current_state == "additional_notes" and new_state == "additional_notes":
-            notes_retries += 1
+            if updated_fields.get("notes_turn_kind") == "chatter":
+                notes_retries += 1
             if notes_retries >= NOTES_RETRY_LIMIT:
                 new_state = "qualification_decision"
                 reply_text = (
-                    "I want to make sure this doesn't turn into an endless back-and-forth, so "
-                    "I'll close things out here. Hoshang has everything from our chat and will "
-                    "follow up with you personally, this conversation is now closed on my end."
+                    "I'll pass everything on to Hoshang now so he can pick this up with you "
+                    "directly, he'll follow up personally. If anything else comes to mind in "
+                    "the meantime, it's best saved for the call with him."
                 )
                 updated_fields["incomplete"] = "notes_retry_cap"
             else:
@@ -314,12 +329,11 @@ def handle_message(msg: dict):
 
         just_qualified = new_state == "qualification_decision" and current_state != "qualification_decision"
 
-        # Enforced in code, not left to the prompt — see ensure_bot_disclosure and
-        # ensure_expectation_setting. Applied to the first outbound message of a conversation
-        # only; repeating either later would be noise.
+        # The whole introduction (greeting, AI disclosure, what happens next) is owned by
+        # code, not the prompt — see ensure_opening_frame. First outbound message only;
+        # repeating it later would be noise.
         if message_count_before_this == 0:
-            reply_text = ensure_bot_disclosure(reply_text)
-            reply_text = ensure_expectation_setting(reply_text)
+            reply_text = ensure_opening_frame(reply_text)
 
         if is_returning_after_gap and current_state != "qualification_decision":
             reply_text = f"Welcome back! {reply_text}"

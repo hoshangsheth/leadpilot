@@ -84,53 +84,61 @@ def _strip_dashes(reply_text: str) -> str:
     return _DASH_BREAK_RE.sub(", ", reply_text).strip()
 
 
-_AI_DISCLOSURE = "I'm Hoshang's AI assistant."
+OPENING_FRAME = (
+    "Hi there, I'm Hoshang's AI assistant. I'll ask a few quick questions about what you "
+    "need, takes about 2 minutes, so Hoshang can follow up with you personally within 24 "
+    "hours."
+)
 
-
-def ensure_bot_disclosure(reply_text: str) -> str:
-    """Guarantee the first outbound message identifies itself as a bot.
-
-    The greeting prompt has always required the words "AI assistant", but on 2026-08-22 a
-    bare "hi" produced "Hi there! To see how Hoshang can help, what process are you looking
-    to automate?" — no disclosure at all. The model resolved the tension between the greeting
-    instructions and the general brevity rule in favour of brevity, and quietly dropped it.
-
-    Whether someone knows they are talking to a bot is not a style preference the model gets
-    to weigh against tone, so it is enforced in code rather than asked for. Same reasoning as
-    the Calendly link being injected deterministically and em dashes being stripped: never
-    leave something enforceable to model compliance.
-    """
-    if "ai assistant" in reply_text.lower():
-        return reply_text
-    return f"{_AI_DISCLOSURE} {reply_text}"
-
-
-_EXPECTATION_SETTING = (
-    "I'll ask a few quick questions, takes about 2 minutes, then he'll follow up with you "
-    "personally within 24 hours."
+# Fragments the model sometimes produces on its own despite being told not to (see
+# states/greeting.py). Stripped before the frame is prepended, so the opener never reads as
+# a duplicate or an out-of-order jumble.
+_FRAME_FRAGMENTS = re.compile(
+    r"(?:^|(?<=[.!?]\s))\s*(?:"
+    r"h(?:i|ello)(?:\s+there)?[,!.]?\s*)?"
+    r"(?:thanks?\s+(?:so\s+much\s+)?for\s+(?:reaching\s+out|getting\s+in\s+touch)[,!.]?\s*)?"
+    r"(?:i'?m\s+hoshang'?s\s+ai\s+assistant[.!]?\s*)"
+    r"|(?:i'?ll\s+ask\s+(?:you\s+)?a\s+(?:few|couple\s+of)\s+quick\s+questions[^.!?]*[.!?]\s*)"
+    r"|(?:(?:then\s+)?he'?ll\s+(?:follow\s+up|get\s+back)[^.!?]*24\s+hours?[^.!?]*[.!?]\s*)",
+    re.I,
 )
 
 
-def ensure_expectation_setting(reply_text: str) -> str:
-    """Guarantee the opening message sets the "few quick questions, ~2 minutes, 24-hour
-    personal follow-up" expectation, exactly like ensure_bot_disclosure does for the AI
-    disclosure.
+_LEADING_GREETING = re.compile(
+    r"^\s*(?:h(?:i|ey|ello)(?:\s+there)?|good\s+(?:morning|afternoon|evening))[,!.]+\s*",
+    re.I,
+)
 
-    The greeting prompt has always asked for this (see states/greeting.py), and on 2026-09-07
-    a real recorded run ("Hi" -> "I'm Hoshang's AI assistant. Hi there! What kind of process
-    or workflow are you looking to automate?") still dropped it entirely, same failure mode
-    as the bot-disclosure incident this mirrors: the model resolves the tension with brevity
-    in favour of brevity when the incoming message gives it little to react to. Whether a
-    lead knows how many questions are coming and when they'll hear back is not something the
-    model gets to trade off against tone, so — same reasoning as the AI disclosure, the
-    Calendly link, and every other enforceable fact in this file — it's guaranteed in code.
 
-    Checks for "24 hour" as the anchor phrase: distinctive enough not to appear by accident,
-    and present in every acceptable phrasing of this expectation (see greeting.py FEW_SHOT).
+def ensure_opening_frame(reply_text: str) -> str:
+    """Compose the first outbound message as: greeting -> AI disclosure -> what happens next
+    -> the state's own question, in that exact order, every time.
+
+    This replaced two separate guards (ensure_bot_disclosure, which prepended, and
+    ensure_expectation_setting, which appended). Each was individually correct and together
+    they produced garbage: on 2026-09-08 a live test opened with "I'm Hoshang's AI assistant.
+    Hi there! What kind of business process or workflow are you looking to automate? I'll ask
+    a few quick questions, takes about 2 minutes, then he'll follow up with you personally
+    within 24 hours." — disclosure before the greeting, and the "here's what happens next"
+    framing stranded after the question it was supposed to precede.
+
+    Bolting required sentences onto either end of a model reply can't produce a coherent
+    paragraph, because neither guard knows what the other did. So the frame is now owned
+    entirely by code and the model is told (states/greeting.py) to return only its question.
+    The strip below is a safety net for when it introduces itself anyway — belt and braces,
+    same reasoning as every other deterministic guarantee in this file.
     """
-    if "24 hour" in reply_text.lower():
-        return reply_text
-    return f"{reply_text} {_EXPECTATION_SETTING}"
+    body = _FRAME_FRAGMENTS.sub("", reply_text).strip()
+    # A bare greeting can survive the pass above when the model wrote it *after* the
+    # disclosure rather than before ("I'm Hoshang's AI assistant. Hi there! What...") —
+    # stripping it here keeps the frame from being followed by a second hello.
+    body = _LEADING_GREETING.sub("", body).strip()
+    if not body:
+        # Model returned nothing but frame fragments. The frame alone still opens correctly,
+        # but it would leave the lead with no question to answer, so fall back to the
+        # greeting state's own job rather than sending a dead end.
+        body = "What kind of business process or workflow are you looking to get help with?"
+    return f"{OPENING_FRAME} {body}"
 
 
 _CLOSING_THANKS = "Thank you for your time!"
@@ -191,13 +199,21 @@ one this state requires. Three exceptions to this:
    services, how does pricing/payment work), answer it briefly and accurately using the
    COMPANY REFERENCE INFO below, in the SAME reply still ask for the field this state needs.
    Answering a real question is not the same as drifting to a different qualifying question.
-2. If the lead corrects or updates something they already told you earlier in the
+2. If the lead corrects, updates, or BELATEDLY ANSWERS something from earlier in the
    conversation (a different field than what this state is currently asking about, e.g.
-   revising their budget while you're now asking about timeline), still capture that
-   correction in extracted_fields using the SAME field key name it was originally stored
-   under (check FIELDS_COLLECTED below for the exact key), in addition to whatever this
-   state's own question needs. Never silently lose a correction just because it belongs to
-   an earlier state.
+   revising their budget while you're now asking about timeline), still capture it in
+   extracted_fields using the SAME field key name it was originally stored under (check
+   FIELDS_COLLECTED below for the exact key), in addition to whatever this state's own
+   question needs. Never silently lose it just because it belongs to an earlier state.
+   THIS INCLUDES A QUESTION THEY PREVIOUSLY DECLINED OR DODGED. A lead who said "no idea"
+   to budget and then three messages later says "I'd go beyond 70k if it removes the manual
+   work" has just answered the budget question — that belongs in budget_range, replacing
+   "not disclosed". Same for a company name, a timeline, or a contact detail given late.
+   On 2026-09-08 exactly this happened and the answer was filed as a free-text note
+   instead, so the lead's own notification said "Budget: not disclosed" directly above a
+   note recording that he was flexible past ₹70,000. Never put a canonical field's answer
+   into additional_notes — additional_notes is only for things that have no field of their
+   own.
    RE-EMIT EVERY FIELD THE CORRECTION TOUCHES, not just the most obvious one. If they drop,
    narrow, or swap part of what they want ("actually forget the vendor piece, just the client
    follow-ups"), then service_type AND requirement_summary both have to be rewritten to
