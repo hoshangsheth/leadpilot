@@ -21,6 +21,13 @@ NOTIFY_EMAIL = os.getenv("NOTIFY_EMAIL")
 CALENDLY_LINK = os.getenv("CALENDLY_LINK")
 MOCK_LLM = os.getenv("MOCK_LLM", "false").lower() == "true"
 
+# Optional: the full contents of a Google service account JSON key, used to append qualified
+# leads to a spreadsheet (see integrations/sheets_client.py). Deliberately NOT in _REQUIRED
+# below — the sheet is a convenience on top of the email notification, which already carries
+# every field, so a missing/misconfigured key should skip the sheet append (logged) rather
+# than take down the whole service.
+GOOGLE_SERVICE_ACCOUNT_JSON = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
+
 WHATSAPP_SESSION_WINDOW_HOURS = 24
 
 # Fail fast and loud at boot on a missing/typo'd env var, rather than a cryptic downstream

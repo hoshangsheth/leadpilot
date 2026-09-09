@@ -27,6 +27,7 @@ from integrations.email_service import (
     send_processing_failure_email,
     send_undelivered_reply_email,
 )
+from integrations.sheets_client import append_qualified_lead
 from observability.logger import log_transition
 from routing import (
     detect_bypass, detect_source, BYPASS_REPLIES,
@@ -357,6 +358,8 @@ def handle_message(msg: dict):
             # This is the message-cap path specifically: a lead cut off one exchange short of
             # finishing must not vanish any more than one who finishes and scores low.
             send_lead_notification_email(wa_number, collected_fields, result)
+            if result["qualified"]:
+                append_qualified_lead(wa_number, collected_fields, result)
             _send_reply(wa_number, reply_text, now)
             return
 
@@ -472,6 +475,8 @@ def handle_message(msg: dict):
 
     if should_email:
         send_lead_notification_email(wa_number, updated_fields, result)
+        if result["qualified"]:
+            append_qualified_lead(wa_number, updated_fields, result)
 
     send_outcome = _send_reply(wa_number, reply_text, now)
     log_transition(lead_id, current_state, new_state, gemini_ms, send_outcome)
