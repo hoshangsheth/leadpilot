@@ -11,7 +11,7 @@ from google.genai import types
 from pydantic import ValidationError
 
 import config
-from schemas import ConversationTurnResult
+from schemas import ConversationTurnResult, WidgetTurnResult
 
 logger = logging.getLogger("leadpilot.gemini")
 
@@ -66,6 +66,38 @@ async def call_gemini(prompt: str, system_instruction: str) -> ConversationTurnR
             continue
         except Exception:
             logger.exception("Gemini call failed (attempt %d)", attempt + 1)
+            continue
+
+    return None
+
+
+async def call_gemini_widget(prompt: str, system_instruction: str) -> WidgetTurnResult | None:
+    """Separate from call_gemini on purpose: that function's return type is locked to
+    ConversationTurnResult (the WhatsApp state machine's shape, extracted_fields and
+    next_state included). The widget has neither, so it gets its own thin call sharing only
+    the client singleton, not the WhatsApp-shaped parsing. Same retry/mock/error handling."""
+    if config.MOCK_LLM:
+        return WidgetTurnResult(reply_text="mock reply", handoff=False)
+
+    for attempt in range(2):
+        try:
+            response = _get_client().models.generate_content(
+                model="gemini-3.6-flash",
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    response_mime_type="application/json",
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                    thinking_config=types.ThinkingConfig(thinking_level="minimal"),
+                ),
+            )
+            raw = json.loads(response.text)
+            return WidgetTurnResult(**raw)
+        except (json.JSONDecodeError, ValidationError) as e:
+            logger.warning("Gemini widget output failed schema validation (attempt %d): %s", attempt + 1, e)
+            continue
+        except Exception:
+            logger.exception("Gemini widget call failed (attempt %d)", attempt + 1)
             continue
 
     return None

@@ -5,9 +5,11 @@ router, and a bare health-check endpoint for the hosting platform.
 import logging
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from db.db import init_db
 from recovery import sweep_stranded_messages
 from webhook import router as webhook_router
+from widget import router as widget_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -15,7 +17,20 @@ logging.basicConfig(
 )
 
 app = FastAPI(title="LeadPilot")
+
+# Scoped to the actual site plus local dev, not "*": this is additive middleware for the new
+# browser-facing widget endpoint only. The WhatsApp webhook is server-to-server (Meta calling
+# in with its own signature header, no browser involved), so CORS has no effect on it either
+# way — this cannot change WhatsApp behavior.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://hoshangsheth.com", "http://localhost:3000"],
+    allow_methods=["POST"],
+    allow_headers=["*"],
+)
+
 app.include_router(webhook_router)
+app.include_router(widget_router)
 
 
 @app.on_event("startup")

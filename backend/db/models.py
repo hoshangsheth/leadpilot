@@ -61,3 +61,32 @@ class Qualification(Base):
     breakdown: Mapped[dict] = mapped_column(JSON)
     qualified: Mapped[bool] = mapped_column(Boolean)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# Website chat widget (FAQ-only, no qualification fields). Deliberately separate tables from
+# Lead/Conversation/Message rather than reusing them: those are keyed around wa_number and
+# wa_message_id, which a browser visitor never has, and mixing an unqualified FAQ channel into
+# the WhatsApp qualification tables risked awkward nullable columns or channel-branching logic
+# touching code that runs the live WhatsApp funnel. Zero foreign keys back to the WhatsApp
+# tables, so nothing here can affect them.
+class WidgetSession(Base):
+    __tablename__ = "widget_sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    messages: Mapped[list["WidgetMessage"]] = relationship(back_populates="session")
+
+
+class WidgetMessage(Base):
+    __tablename__ = "widget_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("widget_sessions.id"), index=True)
+    direction: Mapped[str] = mapped_column(String(8))  # "in" or "out"
+    text: Mapped[str] = mapped_column(Text)
+    handoff: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    session: Mapped["WidgetSession"] = relationship(back_populates="messages")

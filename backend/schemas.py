@@ -51,3 +51,12 @@ class ConversationTurnResult(BaseModel):
             else:
                 coerced[key] = str(raw)
         return coerced
+
+
+class WidgetTurnResult(BaseModel):
+    """The website widget's structured output. No extracted_fields, no next_state — the
+    widget answers questions only, it never runs the qualification state machine. `handoff`
+    is the one decision it makes: true once the visitor is ready to talk about their own
+    project, at which point the frontend surfaces a "Continue on WhatsApp" action."""
+    reply_text: str
+    handoff: bool
