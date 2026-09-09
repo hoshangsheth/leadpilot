@@ -258,10 +258,24 @@ def _timeline_points(collected_fields: dict) -> int:
     still a buyer, and they may well move their date once they hear the real timeline. The
     infeasibility is reported as a blocker instead, so it reaches Hoshang as a fact to raise
     on the call rather than as a silent deduction he can't see.
+
+    Numeric durations are checked first, via the same parse_timeline_weeks used by _blockers,
+    rather than _URGENT_MARKERS' keyword list ("2 week", "two week", ...). That list can only
+    ever cover durations someone thought to add ahead of time — a real lead (Malaika Sharma,
+    2026-09-09) asked for "3 weeks" and scored a neutral 7, the same as a lead who said nothing
+    about timing at all, while the exact same field was correctly flagged as a hard blocker two
+    functions away for being under MIN_DELIVERY_WEEKS. A timeframe at or under the practice's
+    own fastest delivery is urgent by definition, no keyword needed; keyword matching now only
+    covers phrasing with no number in it at all ("asap", "flexible", "next month").
     """
     timeline = (collected_fields.get("timeline_expectation") or "").strip().lower()
     if not timeline or timeline in ("none", "not disclosed", "unknown"):
         return 0
+
+    weeks = parse_timeline_weeks(timeline)
+    if weeks is not None:
+        return 15 if weeks <= MIN_DELIVERY_WEEKS else 7
+
     if any(marker in timeline for marker in _NOT_URGENT_MARKERS):
         return 7
     if any(marker in timeline for marker in _URGENT_MARKERS):
