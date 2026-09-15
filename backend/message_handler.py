@@ -14,7 +14,7 @@ from sqlalchemy import text as sql_text
 import config
 from db.db import SessionLocal
 from db.models import Lead, Conversation, Message, Qualification
-from integrations.whatsapp_client import send_message
+from integrations.whatsapp_client import send_message, send_document
 from conversation_engine import (
     process_message, MAX_MESSAGES,
     ensure_opening_frame, ensure_closing_thanks,
@@ -36,6 +36,13 @@ from routing import (
 )
 
 logger = logging.getLogger("leadpilot.webhook")
+
+# Hosted alongside the site itself (public/downloads/ in the business_website repo), not on
+# this service — a static file has no reason to live in the WhatsApp bot's own deploy. Meta
+# fetches this link directly when send_document runs, so it must stay public with no auth.
+PRICING_CATALOGUE_URL = "https://hoshangsheth.com/downloads/hoshang-sheth-pricing-catalogue.pdf"
+PRICING_CATALOGUE_FILENAME = "Hoshang Sheth - Pricing & Package Catalogue.pdf"
+PRICING_CATALOGUE_CAPTION = "Here's the full pricing and package breakdown for reference before the call."
 
 WELCOME_BACK_GAP_HOURS = 6
 MAX_TEXT_LENGTH = 2000  # a legitimate WhatsApp reply is nowhere near this; bounds worst-case
@@ -361,6 +368,8 @@ def handle_message(msg: dict):
             if result["qualified"]:
                 append_qualified_lead(wa_number, collected_fields, result)
             _send_reply(wa_number, reply_text, now)
+            if result["qualified"]:
+                _send_catalogue(wa_number, now)
             return
 
         notes_retries = int(collected_fields.get("_notes_retry_count", 0) or 0)
@@ -479,6 +488,8 @@ def handle_message(msg: dict):
             append_qualified_lead(wa_number, updated_fields, result)
 
     send_outcome = _send_reply(wa_number, reply_text, now)
+    if should_email and result["qualified"]:
+        _send_catalogue(wa_number, now)
     log_transition(lead_id, current_state, new_state, gemini_ms, send_outcome)
 
 
@@ -517,6 +528,23 @@ def _send_reply(wa_number: str, reply_text: str, last_inbound_at) -> str:
         # An alert that fails must not take down the turn that was otherwise fine.
         logger.exception("Failed to send undelivered-reply alert for %s", wa_number)
     return "send_failed"
+
+
+def _send_catalogue(wa_number: str, last_inbound_at) -> None:
+    """Best-effort follow-up send to a newly qualified lead, after the text reply. A failure
+    here must never look like a failed qualification to Hoshang or re-alert like a missed
+    reply — the lead already has the reply that matters (the Calendly link included in it),
+    this is a bonus, so it only logs, it does not retry and does not raise."""
+    try:
+        asyncio.run(send_document(
+            to=wa_number,
+            link=PRICING_CATALOGUE_URL,
+            filename=PRICING_CATALOGUE_FILENAME,
+            caption=PRICING_CATALOGUE_CAPTION,
+            last_inbound_at=last_inbound_at,
+        ))
+    except Exception:
+        logger.exception("Failed to send pricing catalogue to %s", wa_number)
 
 
 def _upsert_qualification(db, conversation_id: int, result: dict):
