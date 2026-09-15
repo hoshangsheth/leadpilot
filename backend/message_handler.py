@@ -445,6 +445,18 @@ def handle_message(msg: dict):
         if is_returning_after_gap and current_state != "qualification_decision":
             reply_text = f"Welcome back! {reply_text}"
 
+        # Mid-conversation catalogue request (see company_knowledge.py's PDF/brochure rule).
+        # `_wants_catalogue` is a one-shot signal, not a persisted fact — popped every time it's
+        # seen so a value the model emitted on THIS turn can never be replayed as a fresh
+        # request on some later turn purely because it's still sitting in collected_fields.
+        # Sending is deferred to after the DB commit below (network call, not DB work), same
+        # pattern as the qualified-lead catalogue send.
+        wants_catalogue_now = False
+        if updated_fields.pop("_wants_catalogue", None) == "true":
+            if not conversation_fields_flag(collected_fields, "_catalogue_sent"):
+                wants_catalogue_now = True
+                updated_fields["_catalogue_sent"] = "1"
+
         conversation.state = new_state
         conversation.collected_fields = updated_fields
 
@@ -471,6 +483,12 @@ def handle_message(msg: dict):
                 # Calendly link is injected deterministically, never model-generated —
                 # a hallucinated/malformed URL in a real lead's WhatsApp is not acceptable.
                 reply_text = f"{reply_text}\n\nFeel free to grab a slot directly: {config.CALENDLY_LINK}"
+                # Only flag a fresh send if the mid-conversation request path above hasn't
+                # already claimed this turn (a lead can ask for the PDF and answer the final
+                # question at once) — otherwise this would queue a second send.
+                if not wants_catalogue_now:
+                    wants_catalogue_now = True
+                    updated_fields["_catalogue_sent"] = "1"
 
         db.add(Message(
             conversation_id=conversation.id,
@@ -488,7 +506,7 @@ def handle_message(msg: dict):
             append_qualified_lead(wa_number, updated_fields, result)
 
     send_outcome = _send_reply(wa_number, reply_text, now)
-    if should_email and result["qualified"]:
+    if wants_catalogue_now:
         _send_catalogue(wa_number, now)
     log_transition(lead_id, current_state, new_state, gemini_ms, send_outcome)
 
