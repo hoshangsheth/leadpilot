@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 import company_knowledge
+from company_knowledge import PRICING_CATALOGUE_URL
 from db.db import get_db
 from db.models import WidgetSession, WidgetMessage
 from integrations.gemini_client import call_gemini_widget
@@ -59,8 +60,14 @@ YOUR ROLE HERE, SPECIFICALLY:
   same reply.
 - If asked something unrelated to this business entirely, gently steer back to what you can
   help with here.
+- If asked for a PDF, brochure, catalogue, package info, services catalogue, or a downloadable
+  pricing sheet: yes, this exists. Say so plainly and say it's linked right below your reply,
+  never that there is no PDF or download available. Set wants_catalogue to true on this turn
+  so the actual link gets attached (the link itself is added by the site, not by you, so never
+  write a URL yourself). This does not count as a handoff on its own; keep answering normally
+  unless something else in the conversation warrants it.
 
-Reply with JSON: {{"reply_text": "...", "handoff": true|false}}"""
+Reply with JSON: {{"reply_text": "...", "handoff": true|false, "wants_catalogue": true|false}}"""
 
 
 class WidgetChatRequest(BaseModel):
@@ -72,6 +79,7 @@ class WidgetChatRequest(BaseModel):
 class WidgetChatResponse(BaseModel):
     reply: str
     handoff: bool
+    catalogue_url: str | None = None
 
 
 def _build_prompt(message: str, history: list[dict]) -> str:
@@ -112,10 +120,12 @@ async def widget_chat(payload: WidgetChatRequest, db: Session = Depends(get_db))
 
     if result is None:
         logger.warning("Widget Gemini call failed after retries for session %s", payload.session_id)
-        reply, handoff = _FALLBACK_REPLY, True
+        reply, handoff, wants_catalogue = _FALLBACK_REPLY, True, False
     else:
-        reply, handoff = result.reply_text, result.handoff
+        reply, handoff, wants_catalogue = result.reply_text, result.handoff, result.wants_catalogue
+
+    catalogue_url = PRICING_CATALOGUE_URL if wants_catalogue else None
 
     _persist(db, payload.session_id, payload.message, reply, handoff)
 
-    return WidgetChatResponse(reply=reply, handoff=handoff)
+    return WidgetChatResponse(reply=reply, handoff=handoff, catalogue_url=catalogue_url)

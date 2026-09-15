@@ -3,6 +3,7 @@ known field-name aliases, runs business-rule validation, and returns the merged 
 state for the caller to persist.
 """
 
+import hashlib
 import logging
 import re
 
@@ -90,6 +91,29 @@ OPENING_FRAME = (
     "hours."
 )
 
+# Same disclosure, same three facts (AI assistant, ~2 minutes, 24-hour personal follow-up),
+# worded differently. Every lead's very first message got byte-for-byte this exact sentence
+# regardless of what they said or where they came from, which reads as scripted the moment
+# more than one person compares notes. Kept as fixed, pre-written variants rather than
+# model-generated text for the same reason ensure_opening_frame exists at all: free text here
+# is exactly what produced the jumbled/duplicated openers in the 2026-09-08 incident. Picked
+# deterministically per phone number (not randomly) so the same lead always sees the same
+# variant across retries/logs and this stays trivially testable.
+_OPENING_FRAME_VARIANTS = (
+    OPENING_FRAME,
+    "Hi, I'm Hoshang's AI assistant. Just a couple of quick questions first, about 2 minutes, "
+    "and then Hoshang himself will follow up with you personally within 24 hours.",
+    "Hey! I'm Hoshang's AI assistant, here to get a few quick details before he jumps in. "
+    "Takes about 2 minutes, and he'll personally get back to you within 24 hours.",
+)
+
+
+def _pick_opening_frame(wa_number: str | None) -> str:
+    if not wa_number:
+        return _OPENING_FRAME_VARIANTS[0]
+    index = int(hashlib.sha256(wa_number.encode()).hexdigest(), 16) % len(_OPENING_FRAME_VARIANTS)
+    return _OPENING_FRAME_VARIANTS[index]
+
 # Fragments the model sometimes produces on its own despite being told not to (see
 # states/greeting.py). Stripped before the frame is prepended, so the opener never reads as
 # a duplicate or an out-of-order jumble.
@@ -110,9 +134,11 @@ _LEADING_GREETING = re.compile(
 )
 
 
-def ensure_opening_frame(reply_text: str) -> str:
+def ensure_opening_frame(reply_text: str, wa_number: str | None = None) -> str:
     """Compose the first outbound message as: greeting -> AI disclosure -> what happens next
-    -> the state's own question, in that exact order, every time.
+    -> the state's own question, in that exact order, every time. The disclosure sentence
+    itself is picked from a small fixed set of equivalent phrasings, keyed off wa_number, so
+    it isn't the identical string on every single conversation (see _OPENING_FRAME_VARIANTS).
 
     This replaced two separate guards (ensure_bot_disclosure, which prepended, and
     ensure_expectation_setting, which appended). Each was individually correct and together
@@ -138,7 +164,7 @@ def ensure_opening_frame(reply_text: str) -> str:
         # but it would leave the lead with no question to answer, so fall back to the
         # greeting state's own job rather than sending a dead end.
         body = "What kind of business process or workflow are you looking to get help with?"
-    return f"{OPENING_FRAME} {body}"
+    return f"{_pick_opening_frame(wa_number)} {body}"
 
 
 _CLOSING_THANKS = "Thank you for your time!"

@@ -93,6 +93,28 @@ class TestOpeningFrame:
         out = ensure_opening_frame("I'm Hoshang's AI assistant.")
         assert out.rstrip().endswith("?")
 
+    def test_variant_is_picked_deterministically_per_number(self):
+        """2026-09-15: every lead got the byte-for-byte identical disclosure sentence
+        regardless of who they were, which reads as scripted. Wording now varies by phone
+        number, but must stay stable for the same number (same lead re-sending, retries,
+        logs) and must still carry all four required disclosure elements."""
+        first = ensure_opening_frame("What do you want to automate?", "919999900001")
+        again = ensure_opening_frame("What do you want to automate?", "919999900001")
+        assert first == again
+
+        variants = {
+            ensure_opening_frame("What do you want to automate?", f"9199999{i:05d}").lower()
+            for i in range(20)
+        }
+        assert len(variants) > 1, "expected more than one distinct opening variant across numbers"
+        for out in variants:
+            for fragment in ["ai assistant", "2 minutes", "24 hours"]:
+                assert fragment in out
+
+    def test_no_wa_number_falls_back_to_original_frame(self):
+        out = ensure_opening_frame("What do you want to automate?", None)
+        assert out.startswith("Hi there, I'm Hoshang's AI assistant.")
+
 
 class TestWarmContactBypass:
     def test_personal_connection_bypasses(self):

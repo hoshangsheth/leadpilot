@@ -4,6 +4,14 @@ Kept as plain data, not prose baked into a prompt, so it's easy to keep in sync 
 site's pricing changes — update this file, not the state prompts.
 """
 
+# Hosted alongside the site itself (public/downloads/ in the business_website repo), not on
+# this service — a static file has no reason to live in the bot's own deploy. Shared here
+# (rather than defined separately in message_handler.py and widget.py) since both the WhatsApp
+# funnel and the website FAQ widget need the exact same link, and a second copy is how two
+# URLs quietly drift apart.
+PRICING_CATALOGUE_URL = "https://hoshangsheth.com/downloads/hoshang-sheth-pricing-catalogue.pdf"
+PRICING_CATALOGUE_FILENAME = "Hoshang Sheth - Pricing & Package Catalogue.pdf"
+
 FLAGSHIP = {
     "name": "AI Automation & Agentic Systems",
     "one_liner": "AI-powered systems that automate repetitive, knowledge-heavy, multi-step business workflows",

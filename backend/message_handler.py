@@ -12,6 +12,7 @@ from datetime import datetime, timezone, timedelta
 from sqlalchemy import text as sql_text
 
 import config
+from company_knowledge import PRICING_CATALOGUE_URL, PRICING_CATALOGUE_FILENAME
 from db.db import SessionLocal
 from db.models import Lead, Conversation, Message, Qualification
 from integrations.whatsapp_client import send_message, send_document
@@ -37,11 +38,8 @@ from routing import (
 
 logger = logging.getLogger("leadpilot.webhook")
 
-# Hosted alongside the site itself (public/downloads/ in the business_website repo), not on
-# this service — a static file has no reason to live in the WhatsApp bot's own deploy. Meta
-# fetches this link directly when send_document runs, so it must stay public with no auth.
-PRICING_CATALOGUE_URL = "https://hoshangsheth.com/downloads/hoshang-sheth-pricing-catalogue.pdf"
-PRICING_CATALOGUE_FILENAME = "Hoshang Sheth - Pricing & Package Catalogue.pdf"
+# URL/filename live in company_knowledge.py, shared with the website widget. Meta fetches
+# this link directly when send_document runs, so it must stay public with no auth.
 PRICING_CATALOGUE_CAPTION = "Here's the full pricing and package breakdown for reference before the call."
 
 WELCOME_BACK_GAP_HOURS = 6
@@ -439,7 +437,7 @@ def handle_message(msg: dict):
         # one exchange (the text-only redirect) by the time they type anything, and would
         # otherwise never be introduced to properly.
         if not conversation_fields_flag(collected_fields, "_opened"):
-            reply_text = ensure_opening_frame(reply_text)
+            reply_text = ensure_opening_frame(reply_text, wa_number)
             updated_fields["_opened"] = "1"
 
         if is_returning_after_gap and current_state != "qualification_decision":

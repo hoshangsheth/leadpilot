@@ -56,7 +56,12 @@ class ConversationTurnResult(BaseModel):
 class WidgetTurnResult(BaseModel):
     """The website widget's structured output. No extracted_fields, no next_state — the
     widget answers questions only, it never runs the qualification state machine. `handoff`
-    is the one decision it makes: true once the visitor is ready to talk about their own
-    project, at which point the frontend surfaces a "Continue on WhatsApp" action."""
+    is one decision it makes: true once the visitor is ready to talk about their own
+    project, at which point the frontend surfaces a "Continue on WhatsApp" action.
+    `wants_catalogue` is the other: true when the visitor asked for the pricing PDF/brochure,
+    at which point the router (not the model) attaches the real download link — same
+    defense-in-depth reasoning as the WhatsApp funnel's `_wants_catalogue` signal, so a model
+    that names the wrong URL, or none, can never break the download."""
     reply_text: str
     handoff: bool
+    wants_catalogue: bool = False
